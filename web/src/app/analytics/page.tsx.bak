@@ -1,0 +1,9 @@
+'use client';
+
+export const dynamic = 'force-dynamic';
+
+import { YieldDashboard } from '@/components/Analytics/YieldDashboard';
+
+export default function AnalyticsPage() {
+  return <YieldDashboard />;
+}

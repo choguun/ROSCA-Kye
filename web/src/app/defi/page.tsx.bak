@@ -1,0 +1,9 @@
+'use client';
+
+export const dynamic = 'force-dynamic';
+
+import { YieldStrategy } from '@/components/DeFi/YieldStrategy';
+
+export default function DeFiPage() {
+  return <YieldStrategy />;
+}

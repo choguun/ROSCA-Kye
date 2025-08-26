@@ -1,0 +1,126 @@
+.root {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-width: 600px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    border-top: 1px solid #e5e7eb;
+    background: rgba(255, 255, 255, 0.95);
+    padding: 12px 20px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+    backdrop-filter: blur(16px);
+    z-index: 1000;
+
+    @media (prefers-color-scheme: dark) {
+        border-top: 1px solid #374151;
+        background: rgba(17, 24, 39, 0.95);
+        box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+    }
+}
+
+.menu {
+    padding: 10px 16px;
+    color: #6b7280;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all 0.3s ease;
+    border-radius: 12px;
+    position: relative;
+    text-align: center;
+    flex: 1;
+    margin: 0 4px;
+
+    @media (prefers-color-scheme: dark) {
+        color: #9ca3af;
+    }
+}
+
+.menu:hover {
+    color: #00B900;
+    background: rgba(0, 185, 0, 0.05);
+    transform: translateY(-1px);
+}
+
+.active {
+    font-weight: 700;
+    color: #00B900;
+    background: rgba(0, 185, 0, 0.1);
+    position: relative;
+}
+
+.active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 24px;
+    height: 3px;
+    background: #00B900;
+    border-radius: 0 0 2px 2px;
+}
+
+/* ROSCA-specific enhancements */
+.menu[href="/"] {
+    background: linear-gradient(135deg, rgba(0, 185, 0, 0.05), rgba(0, 154, 0, 0.02));
+}
+
+.menu[href="/circles"] {
+    background: linear-gradient(135deg, rgba(0, 185, 0, 0.08), rgba(0, 154, 0, 0.03));
+}
+
+.menu[href="/profile"] {
+    background: rgba(107, 114, 128, 0.05);
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+    .root {
+        padding: 10px 16px;
+        padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    }
+    
+    .menu {
+        padding: 8px 12px;
+        font-size: 12px;
+        margin: 0 2px;
+    }
+}
+
+@media (max-width: 480px) {
+    .root {
+        padding: 8px 12px;
+        padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    }
+    
+    .menu {
+        padding: 6px 8px;
+        font-size: 11px;
+        margin: 0 1px;
+    }
+}
+
+/* Fixed bottom navigation animation */
+.root {
+    animation: slideUpFromBottom 0.3s ease-out;
+}
+
+@keyframes slideUpFromBottom {
+    from {
+        transform: translateY(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}

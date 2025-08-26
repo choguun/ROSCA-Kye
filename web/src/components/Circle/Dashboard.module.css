@@ -1,0 +1,475 @@
+.container {
+  max-width: 480px;
+  margin: 0 auto;
+  min-height: 100vh;
+  background: #f8fafc;
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #f3f4f6;
+  border-top: 3px solid #00B900;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Welcome Screen */
+.welcome {
+  padding: 40px 20px;
+  text-align: center;
+  background: white;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.logo {
+  font-size: 48px;
+  margin-bottom: 20px;
+}
+
+.welcome h1 {
+  font-size: 28px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 8px 0;
+}
+
+.welcome > p {
+  color: #6b7280;
+  font-size: 16px;
+  margin-bottom: 32px;
+}
+
+.profile {
+  background: #f8fafc;
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 32px;
+  border: 1px solid #e2e8f0;
+}
+
+.profileInfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.profilePicture {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid #00B900;
+}
+
+.displayName {
+  font-weight: 600;
+  color: #111827;
+  font-size: 16px;
+}
+
+.contextInfo {
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.walletSection {
+  margin-bottom: 40px;
+}
+
+.walletSection p {
+  color: #374151;
+  margin-bottom: 16px;
+}
+
+.features {
+  margin-top: 40px;
+}
+
+.featureGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.featureItem {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 20px 16px;
+  text-align: center;
+  border: 1px solid #e2e8f0;
+}
+
+.featureIcon {
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+
+.featureTitle {
+  font-weight: 600;
+  color: #111827;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.featureDesc {
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Dashboard Header */
+.header {
+  background: white;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 20px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.headerContent {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.headerLeft h1 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 4px 0;
+}
+
+.groupInfo {
+  color: #6b7280;
+  font-size: 12px;
+  margin: 0;
+  font-family: monospace;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.analyticsLink {
+  color: #00B900;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(0, 185, 0, 0.1);
+  transition: all 0.2s;
+}
+
+.analyticsLink:hover {
+  background: rgba(0, 185, 0, 0.2);
+  transform: translateY(-1px);
+}
+
+.headerProfile {
+  display: flex;
+  align-items: center;
+}
+
+.headerProfilePicture {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid #00B900;
+}
+
+/* Empty State */
+.empty {
+  padding: 60px 20px;
+  text-align: center;
+  background: white;
+  margin: 20px;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+}
+
+.emptyIcon {
+  font-size: 48px;
+  margin-bottom: 20px;
+}
+
+.empty h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 8px 0;
+}
+
+.empty p {
+  color: #6b7280;
+  margin-bottom: 32px;
+}
+
+.createButton {
+  background: #00B900;
+  color: white;
+  border: none;
+  padding: 16px 32px;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.createButton:hover {
+  background: #009a00;
+  transform: translateY(-1px);
+}
+
+.noGroup {
+  background: #fef3cd;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 16px;
+  color: #92400e;
+}
+
+/* Circles List */
+.circlesList {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.circleCard {
+  background: white;
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.circleCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.circleHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.circleStatus {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9ca3af;
+}
+
+.statusDot[data-status="2"] {
+  background: #00B900;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.statusText {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+}
+
+.circleRound {
+  font-size: 12px;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.circleAmount {
+  font-size: 24px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.amountLabel {
+  font-size: 12px;
+  font-weight: 400;
+  color: #6b7280;
+}
+
+.circleMeta {
+  display: flex;
+  justify-content: space-between;
+  margin: 16px 0;
+  padding: 12px 0;
+  border-top: 1px solid #f3f4f6;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.metaItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.metaLabel {
+  font-size: 11px;
+  color: #9ca3af;
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.metaValue {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.countdown {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #f59e0b;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.countdownIcon {
+  font-size: 16px;
+}
+
+/* Create Card */
+.createCard {
+  background: linear-gradient(135deg, #00B900 0%, #009a00 100%);
+  color: white;
+  border-radius: 16px;
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 2px dashed transparent;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+.createCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 185, 0, 0.3);
+}
+
+.createIcon {
+  font-size: 32px;
+  font-weight: 300;
+}
+
+.createText {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* Mobile Optimizations */
+@media (max-width: 480px) {
+  .container {
+    margin: 0;
+    background: #f8fafc;
+  }
+
+  .welcome {
+    padding: 32px 16px;
+  }
+
+  .header {
+    padding: 16px;
+  }
+
+  .circlesList {
+    padding: 16px;
+  }
+
+  .featureGrid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .featureItem {
+    padding: 16px 12px;
+  }
+
+  .circleCard {
+    padding: 16px;
+  }
+
+  .circleAmount {
+    font-size: 20px;
+  }
+
+  .empty {
+    margin: 16px;
+    padding: 40px 16px;
+  }
+}
+
+/* Dark mode support (if needed) */
+@media (prefers-color-scheme: dark) {
+  .container {
+    background: #111827;
+  }
+  
+  .welcome, .header, .circleCard, .empty {
+    background: #1f2937;
+    border-color: #374151;
+  }
+  
+  .welcome h1, .headerLeft h1, .empty h2, .circleAmount, .displayName {
+    color: #f9fafb;
+  }
+  
+  .profile, .featureItem {
+    background: #374151;
+    border-color: #4b5563;
+  }
+}

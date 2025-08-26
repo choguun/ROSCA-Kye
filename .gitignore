@@ -1,0 +1,6 @@
+/contracts/broadcast/Deploy.s.sol
+/contracts/dapp-starter-main/node_modules
+/.claude
+*.md
+/contracts/node_modules
+/dapp-starter/node_modules

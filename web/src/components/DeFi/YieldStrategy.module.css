@@ -1,0 +1,398 @@
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+  background: #f8fafc;
+  min-height: 100vh;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 40px;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: white;
+  padding: 40px;
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(79, 70, 229, 0.3);
+}
+
+.header h1 {
+  font-size: 36px;
+  font-weight: 700;
+  margin: 0 0 16px 0;
+}
+
+.subtitle {
+  font-size: 18px;
+  opacity: 0.9;
+  margin: 0;
+}
+
+.section {
+  margin-bottom: 60px;
+}
+
+.section h2 {
+  font-size: 28px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 32px;
+}
+
+/* Opportunities Grid */
+.opportunitiesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+}
+
+.opportunityCard {
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-left: 4px solid #10b981;
+  transition: all 0.3s ease;
+}
+
+.opportunityCard[data-risk="medium"] {
+  border-left-color: #f59e0b;
+}
+
+.opportunityCard[data-risk="high"] {
+  border-left-color: #ef4444;
+}
+
+.opportunityCard:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.opportunityHeader {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.opportunityIcon {
+  font-size: 32px;
+}
+
+.opportunityInfo h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 8px 0;
+}
+
+.riskBadge {
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.riskBadge[data-risk="low"] {
+  background: #ecfdf5;
+  color: #166534;
+}
+
+.riskBadge[data-risk="medium"] {
+  background: #fef3cd;
+  color: #92400e;
+}
+
+.riskBadge[data-risk="high"] {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.opportunityMetrics {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.metric {
+  text-align: center;
+}
+
+.metricValue {
+  display: block;
+  font-size: 24px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.metricLabel {
+  font-size: 12px;
+  color: #6b7280;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.opportunityDescription {
+  color: #6b7280;
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+
+.investButton {
+  width: 100%;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.investButton:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
+}
+
+/* Social Lending Section */
+.lendingOverview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 24px;
+  margin-bottom: 40px;
+}
+
+.lendingCard {
+  background: white;
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.lendingCard[data-highlight="true"] {
+  background: linear-gradient(135deg, #00B900 0%, #009a00 100%);
+  color: white;
+}
+
+.lendingCard h3 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 20px 0;
+}
+
+.problemList, .solutionList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.problemList li, .solutionList li {
+  padding: 8px 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.solutionList li {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.lendingMetrics {
+  background: white;
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.lendingMetrics h3 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 24px 0;
+}
+
+.metricsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 24px;
+}
+
+.lendingMetric {
+  text-align: center;
+}
+
+.lendingValue {
+  font-size: 24px;
+  font-weight: 700;
+  color: #00B900;
+  margin-bottom: 8px;
+}
+
+.lendingLabel {
+  font-size: 12px;
+  color: #6b7280;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* Features Grid */
+.featuresGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+}
+
+.featureCard {
+  background: white;
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.featureCard:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.featureIcon {
+  font-size: 48px;
+  margin-bottom: 20px;
+}
+
+.featureCard h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 16px 0;
+}
+
+.featureCard p {
+  color: #6b7280;
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+
+.featureMetrics {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.featureMetrics span {
+  background: #f3f4f6;
+  color: #374151;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Vision Section */
+.visionSection {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  color: white;
+  border-radius: 20px;
+  padding: 60px 40px;
+  text-align: center;
+}
+
+.visionSection h2 {
+  color: white;
+  margin-bottom: 40px;
+}
+
+.visionContent {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 60px;
+  align-items: center;
+}
+
+.visionText {
+  text-align: left;
+}
+
+.visionText p {
+  font-size: 18px;
+  line-height: 1.7;
+  margin-bottom: 24px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.visionText strong {
+  color: #00B900;
+}
+
+.visionStats {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.visionStat {
+  text-align: center;
+}
+
+.visionNumber {
+  font-size: 32px;
+  font-weight: 700;
+  color: #00B900;
+  margin-bottom: 8px;
+}
+
+.visionLabel {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* Mobile Optimizations */
+@media (max-width: 768px) {
+  .container {
+    padding: 16px;
+  }
+
+  .header {
+    padding: 32px 20px;
+  }
+
+  .header h1 {
+    font-size: 28px;
+  }
+
+  .subtitle {
+    font-size: 16px;
+  }
+
+  .opportunitiesGrid,
+  .lendingOverview,
+  .featuresGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .visionContent {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    text-align: center;
+  }
+
+  .visionText {
+    text-align: center;
+  }
+
+  .visionStats {
+    flex-direction: row;
+    justify-content: center;
+  }
+
+  .lendingCard,
+  .featureCard,
+  .visionSection {
+    padding: 24px;
+  }
+}

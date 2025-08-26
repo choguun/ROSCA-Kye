@@ -1,0 +1,556 @@
+.container {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 20px;
+  background: #f8fafc;
+  min-height: 100vh;
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #f3f4f6;
+  border-top: 3px solid #00B900;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 24px;
+  background: white;
+  padding: 20px;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.headerTop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.backButton {
+  position: absolute;
+  left: 0;
+  background: none;
+  border: none;
+  color: #6b7280;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.backButton:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.header h1 {
+  font-size: 24px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+}
+
+.subtitle {
+  color: #6b7280;
+  font-size: 14px;
+  margin: 8px 0 0 0;
+}
+
+/* Urgency Card */
+.urgencyCard {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 16px;
+  margin-bottom: 20px;
+  border: 2px solid transparent;
+}
+
+.urgencyCard[data-urgency="normal"] {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.urgencyCard[data-urgency="warning"] {
+  background: #fef3cd;
+  border-color: #fde68a;
+}
+
+.urgencyCard[data-urgency="urgent"] {
+  background: #fef2f2;
+  border-color: #fecaca;
+  animation: pulse-urgent 2s infinite;
+}
+
+.urgencyCard[data-urgency="overdue"] {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+@keyframes pulse-urgent {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+}
+
+.urgencyIcon {
+  font-size: 32px;
+}
+
+.urgencyInfo {
+  flex: 1;
+}
+
+.urgencyTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 4px;
+}
+
+.urgencyText {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+/* Deposit Card */
+.depositCard {
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.depositCard h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 20px 0;
+}
+
+.amountSection {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+}
+
+.amountItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+}
+
+.amountItem[data-penalty="true"] {
+  color: #dc2626;
+  background: #fef2f2;
+  margin: 0 -12px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+}
+
+.amountItem[data-total="true"] {
+  font-weight: 700;
+  font-size: 18px;
+  color: #111827;
+  border-top: 2px solid #e5e7eb;
+  margin-top: 8px;
+  padding-top: 16px;
+}
+
+.amountLabel {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.amountItem[data-penalty="true"] .amountLabel,
+.amountItem[data-penalty="true"] .amountValue {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.amountValue {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.amountSeparator {
+  height: 1px;
+  background: #e5e7eb;
+  margin: 8px 0;
+}
+
+.penaltyExplanation {
+  display: flex;
+  gap: 12px;
+  background: #fef3cd;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #fde68a;
+  margin-top: 16px;
+}
+
+.penaltyIcon {
+  font-size: 20px;
+}
+
+.penaltyText {
+  flex: 1;
+  font-size: 14px;
+  color: #92400e;
+  line-height: 1.5;
+}
+
+.penaltyText strong {
+  font-weight: 600;
+}
+
+/* Balance Card */
+.balanceCard {
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.balanceCard h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 20px 0;
+}
+
+.balanceComparison {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+}
+
+.balanceItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+}
+
+.balanceItem:not(:last-child) {
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 8px;
+  padding-bottom: 16px;
+}
+
+.balanceLabel {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.balanceValue {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.balanceStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 8px;
+  margin-top: 16px;
+  font-weight: 600;
+}
+
+.balanceStatus[data-sufficient="true"] {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.balanceStatus[data-sufficient="false"] {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.statusIcon {
+  font-size: 16px;
+}
+
+.statusText {
+  font-size: 14px;
+}
+
+.insufficientFunds {
+  background: #fef3cd;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+  text-align: center;
+}
+
+.insufficientFunds p {
+  color: #92400e;
+  margin: 0 0 12px 0;
+  font-size: 14px;
+}
+
+.mintButton {
+  background: #f59e0b;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.mintButton:hover {
+  background: #d97706;
+}
+
+/* Beneficiary Card */
+.beneficiaryCard {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.beneficiaryIcon {
+  font-size: 32px;
+}
+
+.beneficiaryInfo {
+  flex: 1;
+}
+
+.beneficiaryTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e40af;
+  margin-bottom: 4px;
+}
+
+.beneficiaryAddress {
+  font-family: monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e40af;
+  margin-bottom: 4px;
+}
+
+.beneficiaryText {
+  font-size: 12px;
+  color: #3b82f6;
+}
+
+/* Error Message */
+.errorMessage {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  padding: 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+/* Deposit Button */
+.depositButton {
+  width: 100%;
+  background: #00B900;
+  color: white;
+  border: none;
+  padding: 18px 24px;
+  border-radius: 12px;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 56px;
+}
+
+.depositButton:hover:not(:disabled) {
+  background: #009a00;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 185, 0, 0.3);
+}
+
+.depositButton:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.depositButton[data-urgency="urgent"] {
+  background: #ef4444;
+  animation: pulse-button 1.5s infinite;
+}
+
+.depositButton[data-urgency="urgent"]:hover:not(:disabled) {
+  background: #dc2626;
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.3);
+}
+
+.depositButton[data-urgency="warning"] {
+  background: #f59e0b;
+}
+
+.depositButton[data-urgency="warning"]:hover:not(:disabled) {
+  background: #d97706;
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.3);
+}
+
+.depositButton[data-urgency="overdue"] {
+  background: #dc2626;
+  animation: pulse-button 1.5s infinite;
+}
+
+.depositButton[data-urgency="overdue"]:hover:not(:disabled) {
+  background: #b91c1c;
+  box-shadow: 0 6px 20px rgba(220, 38, 38, 0.4);
+}
+
+@keyframes pulse-button {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+/* Info Footer */
+.infoFooter {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.infoItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: white;
+  padding: 16px;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.infoIcon {
+  font-size: 16px;
+  margin-top: 2px;
+}
+
+.infoText {
+  font-size: 14px;
+  color: #374151;
+  line-height: 1.5;
+}
+
+/* Error State */
+.error {
+  text-align: center;
+  padding: 40px 20px;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.error h2 {
+  font-size: 20px;
+  color: #374151;
+  margin-bottom: 12px;
+}
+
+.error p {
+  color: #6b7280;
+  margin-bottom: 24px;
+  line-height: 1.5;
+}
+
+.button {
+  background: #00B900;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: #009a00;
+}
+
+/* Mobile Optimizations */
+@media (max-width: 480px) {
+  .container {
+    margin: 0;
+    padding: 16px;
+    background: #f8fafc;
+  }
+
+  .urgencyCard,
+  .depositCard,
+  .balanceCard {
+    padding: 20px;
+  }
+
+  .urgencyIcon,
+  .beneficiaryIcon {
+    font-size: 28px;
+  }
+
+  .urgencyTitle {
+    font-size: 16px;
+  }
+
+  .header h1 {
+    font-size: 20px;
+  }
+
+  .depositButton {
+    font-size: 16px;
+    padding: 16px 24px;
+  }
+}
