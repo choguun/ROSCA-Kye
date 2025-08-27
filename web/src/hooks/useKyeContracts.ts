@@ -1,10 +1,17 @@
 'use client';
 
 import React, { useCallback } from 'react';
-import { useKaiaWalletSdk } from '@/components/Wallet/Sdk/walletSdk.hooks';
+import { useKaiaWalletSdk, useKaiaWalletSdkStore } from '@/components/Wallet/Sdk/walletSdk.hooks';
 import { getContractAddresses, DEFAULT_CHAIN_ID } from '@/utils/contracts/addresses';
 import { KYE_FACTORY_ABI, KYE_GROUP_ABI, MOCK_USDT_ABI, Phase } from '@/utils/contracts/abis';
+import { ethers } from 'ethers';
 import * as Sentry from '@sentry/nextjs';
+import { 
+  validateTransactionFormat, 
+  debugContractCall, 
+  logTransactionAttempt, 
+  decodeError32603 
+} from '@/utils/debug-transaction';
 import type { 
   CircleParams, 
   CircleMetadata, 
@@ -32,10 +39,16 @@ export const useKyeContracts = () => {
     getAccount, 
     sendTransaction, 
     getBalance, 
-    getErc20TokenBalance 
+    getErc20TokenBalance,
+    validateNetwork: validateWalletNetwork
   } = useKaiaWalletSdk();
+  const { sdk } = useKaiaWalletSdkStore();
 
   const addresses = getContractAddresses(DEFAULT_CHAIN_ID);
+  
+  console.log('Using contract addresses for chain', DEFAULT_CHAIN_ID, ':', addresses);
+
+  // Use the validateNetwork from wallet SDK (renamed to validateWalletNetwork above)
 
   // Create contract call helper
   const callContract = useCallback(async (
@@ -71,13 +84,13 @@ export const useKyeContracts = () => {
         // Encode function call
         const functionSignature = `${method}(${abi.find(f => f.name === method)?.inputs.map((i: any) => i.type).join(',')})`;
         
-        const tx = [{
+        const tx = {
           from: account,
           to: contractAddress,
           value: value || '0',
           gas: '500000', // Conservative gas limit
           // data: encoded function call would go here
-        }];
+        };
 
         const result = await sendTransaction(tx);
         return result;
@@ -127,13 +140,13 @@ export const useKyeContracts = () => {
       // Generate salt for CREATE2 deployment
       const salt = `0x${Math.random().toString(16).substr(2, 64)}`;
 
-      const tx = [{
+      const tx = {
         from: account,
         to: addresses.KyeFactory,
         value: '0',
         gas: '2000000',
         // In real implementation, encode deployCircle call with params
-      }];
+      };
 
       const result = await sendTransaction(tx);
       
@@ -230,13 +243,13 @@ export const useKyeContracts = () => {
 
       const userIdHash = hashLineUserId(lineUserId);
 
-      const tx = [{
+      const tx = {
         from: account,
         to: circleAddress,
         value: '0',
         gas: '500000',
         // In real implementation, encode joinCircle call with userIdHash
-      }];
+      };
 
       const result = await sendTransaction(tx);
 
@@ -275,24 +288,24 @@ export const useKyeContracts = () => {
       }
 
       // First approve USDT spending
-      const approveTx = [{
+      const approveTx = {
         from: account,
         to: addresses.MockUSDT,
         value: '0',
         gas: '100000',
         // Encode approve call
-      }];
+      };
 
       await sendTransaction(approveTx);
 
       // Then make deposit
-      const depositTx = [{
+      const depositTx = {
         from: account,
         to: circleAddress,
         value: '0',
         gas: '500000',
         // Encode deposit call
-      }];
+      };
 
       const result = await sendTransaction(depositTx);
 
@@ -383,29 +396,265 @@ export const useKyeContracts = () => {
     }
   }, [getAccount, getErc20TokenBalance, addresses]);
 
-  // Mint USDT (for testing)
-  const mintUsdt = useCallback(async (amount: string) => {
+  // Add network detection helper
+  const detectActualNetwork = useCallback(async () => {
     try {
       const account = await getAccount();
+      if (!account) return null;
+      
+      // Try to detect network by making RPC calls
+      // Since we don't have direct chainId access, we'll try contract interactions to detect network
+      console.log('Attempting network detection through contract calls...');
+      
+      // Try each network's USDT contract
+      const networks = [
+        { chainId: 1001, name: 'Kaia Kairos Testnet', usdtAddress: '0x8f198cd718aa1bf2b338ddba78736e91cd254da6' },
+        { chainId: 31337, name: 'Local Anvil', usdtAddress: '0x5fbdb2315678afecb367f032d93f642f64180aa3' }
+      ];
+      
+      for (const network of networks) {
+        try {
+          console.log(`Testing network: ${network.name} (${network.chainId})`);
+          await getErc20TokenBalance(network.usdtAddress, account);
+          console.log(`✅ Successfully connected to ${network.name}`);
+          return network;
+        } catch (error) {
+          console.log(`❌ ${network.name} not accessible:`, error.message);
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Network detection failed:', error);
+      return null;
+    }
+  }, [getAccount, getErc20TokenBalance]);
+
+  // Enhanced JSON-RPC error parser
+  const parseJsonRpcError = (error: any): string => {
+    console.log('Parsing JSON-RPC error:', error);
+    
+    // Handle serialized errors from Sentry
+    if (error && typeof error === 'object') {
+      if (error.code === -32603) {
+        return 'JSON-RPC Internal Error (-32603): This usually means you\'re connected to the wrong network or the contract doesn\'t exist.';
+      }
+      if (error.code === -32602) {
+        return 'Invalid RPC Parameters (-32602): The transaction parameters are invalid.';
+      }
+      if (error.code === -32000) {
+        return 'RPC Error (-32000): Transaction would fail or insufficient funds.';
+      }
+      if (error.message) {
+        return error.message;
+      }
+    }
+    
+    if (error instanceof Error) {
+      return error.message;
+    }
+    
+    return 'Unknown error occurred';
+  };
+
+  // Mint USDT (for testing) - Enhanced with network detection and better error handling
+  const mintUsdt = useCallback(async (amount: string) => {
+    try {
+      console.log('=== MINT USDT START ===');
+      console.log('Amount requested:', amount);
+      console.log('Available addresses:', addresses);
+      console.log('Expected Chain ID:', DEFAULT_CHAIN_ID);
+      
+      Sentry.addBreadcrumb({
+        message: 'Starting USDT mint with network detection',
+        category: 'contract',
+        level: 'info',
+        data: { amount, expectedChainId: DEFAULT_CHAIN_ID }
+      });
+
+      const account = await getAccount();
+      console.log('Account retrieved:', account);
+      
       if (!account) {
-        throw new Error('Wallet not connected');
+        throw new Error('Wallet not connected. Please connect your wallet first.');
       }
 
-      const tx = [{
-        from: account,
-        to: addresses.MockUSDT,
-        value: '0',
-        gas: '200000',
-        // Encode mint call
-      }];
+      // Step 1: Detect actual network
+      console.log('🔍 Detecting actual network...');
+      const detectedNetwork = await detectActualNetwork();
+      
+      if (!detectedNetwork) {
+        throw new Error(
+          'Unable to detect network. Please ensure your wallet is connected to either:\n' +
+          '• Kaia Kairos Testnet (Chain ID: 1001)\n' +
+          '• Local Anvil (Chain ID: 31337)\n\n' +
+          'Current configured network: Kaia Kairos Testnet'
+        );
+      }
+      
+      console.log(`✅ Detected network: ${detectedNetwork.name} (Chain ID: ${detectedNetwork.chainId})`);
+      
+      // Use detected network's contract address
+      const usdtAddress = detectedNetwork.usdtAddress;
+      console.log('Using USDT contract address:', usdtAddress);
+      
+      // Step 2: Validate contract exists and is accessible
+      try {
+        console.log('🔍 Verifying contract accessibility...');
+        const balance = await getErc20TokenBalance(usdtAddress, account);
+        console.log(`✅ Contract accessible. Current balance: ${balance}`);
+      } catch (verifyError) {
+        console.error('❌ Contract verification failed:', verifyError);
+        throw new Error(
+          `USDT contract is not accessible on ${detectedNetwork.name}.\n` +
+          `Contract address: ${usdtAddress}\n` +
+          `Please ensure the contract is deployed or try a different network.`
+        );
+      }
+      
+      // Step 3: Create and validate transaction data
+      console.log('🔧 Creating transaction data...');
+      const usdtInterface = new ethers.Interface(MOCK_USDT_ABI);
+      const mintData = usdtInterface.encodeFunctionData('mint', [account, amount]);
+      console.log('✅ Transaction data encoded:', mintData);
 
+      // Step 4: Prepare transaction with appropriate gas (SDK expects hex values)
+      const gasLimit = detectedNetwork.chainId === 31337 ? 500000 : 800000; // More gas for testnet
+      const gasLimitHex = '0x' + gasLimit.toString(16);
+      
+      const tx = {
+        from: account,
+        to: usdtAddress,
+        value: '0x0', // SDK expects hex format
+        gas: gasLimitHex, // SDK expects hex format
+        data: mintData
+      };
+
+      console.log('📤 Sending transaction...');
+      console.log('Transaction details:');
+      console.log('- Network:', detectedNetwork.name);
+      console.log('- Chain ID:', detectedNetwork.chainId);
+      console.log('- From:', account);
+      console.log('- To:', usdtAddress);  
+      console.log('- Gas (decimal):', gasLimit);
+      console.log('- Gas (hex):', gasLimitHex);
+      console.log('- Value:', '0x0');
+      console.log('- Data:', mintData);
+      
+      // Step 5: Comprehensive transaction debugging
+      console.log('🔍 Running comprehensive transaction debug...');
+      
+      // Debug contract accessibility
+      if (sdk) {
+        const walletProvider = sdk.getWalletProvider();
+        const contractDebug = await debugContractCall(usdtAddress, walletProvider, account);
+        console.log('Contract debug results:', contractDebug);
+        
+        if (!contractDebug.success) {
+          throw new Error(`Contract validation failed: ${JSON.stringify(contractDebug)}`);
+        }
+      } else {
+        console.warn('⚠️  SDK not available, skipping contract debug');
+      }
+      
+      // Validate transaction format
+      const validationResult = validateTransactionFormat(tx);
+      if (!validationResult.isValid) {
+        console.error('❌ Transaction format validation failed:', validationResult.errors);
+        throw new Error(`Transaction format errors: ${validationResult.errors.join(', ')}`);
+      }
+      
+      // Log transaction attempt for debugging
+      logTransactionAttempt(tx);
+      
+      console.log('🚀 All validations passed, sending transaction...');
       const result = await sendTransaction(tx);
+      console.log('✅ Transaction sent successfully:', result);
+      
+      Sentry.addBreadcrumb({
+        message: 'USDT minted successfully',
+        category: 'contract',
+        level: 'info',
+        data: { 
+          transactionHash: result,
+          network: detectedNetwork.name,
+          chainId: detectedNetwork.chainId
+        }
+      });
+
+      console.log('=== MINT USDT SUCCESS ===');
       return result;
     } catch (error) {
-      console.error('Error minting USDT:', error);
-      throw error;
+      console.error('=== MINT USDT ERROR ===');
+      console.error('Raw error:', error);
+      
+      // Enhanced error analysis for -32603
+      if (error?.code === -32603) {
+        console.error('🔍 DETAILED -32603 ERROR ANALYSIS:');
+        const errorAnalysis = decodeError32603(error);
+        console.error('Error analysis:', errorAnalysis);
+        
+        // Additional debugging for -32603
+        console.error('🔧 DEBUG RECOMMENDATIONS:');
+        console.error('1. Check if wallet is connected to Kaia Kairos Testnet (Chain ID: 1001)');
+        console.error('2. Verify contract address is deployed:', usdtAddress);
+        console.error('3. Ensure wallet has KAIA for gas fees');
+        console.error('4. Check transaction format is valid (all hex values)');
+        console.error('5. Try reducing gas limit or increasing it');
+        console.error('');
+        console.error('Current transaction that failed:');
+        console.error(JSON.stringify(tx, null, 2));
+      }
+      
+      // Enhanced JSON-RPC error handling
+      const parsedError = parseJsonRpcError(error);
+      console.error('Parsed error:', parsedError);
+      
+      let userFriendlyMessage = 'Failed to mint USDT';
+      
+      // Handle specific error patterns
+      if (parsedError.includes('-32603') || parsedError.includes('Internal Error')) {
+        userFriendlyMessage = 
+          '❌ Network Error: Your wallet appears to be connected to the wrong network.\n\n' +
+          '🔧 To fix this:\n' +
+          '1. Switch your wallet to "Kaia Kairos Testnet"\n' +
+          '2. Or use a local development network\n\n' +
+          '📋 Kaia Kairos Testnet Details:\n' +
+          '• Chain ID: 1001\n' +
+          '• RPC: https://public-en-kairos.node.kaia.io\n' +
+          '• Explorer: https://kairos.kaiascan.io';
+      } else if (parsedError.includes('user rejected') || parsedError.includes('denied')) {
+        userFriendlyMessage = 'Transaction was cancelled by user';
+      } else if (parsedError.includes('insufficient')) {
+        userFriendlyMessage = 'Insufficient funds or gas. Please add more KAIA for gas fees.';
+      } else if (parsedError.includes('contract') || parsedError.includes('address')) {
+        userFriendlyMessage = 'Contract not found on this network. Please switch to Kaia Kairos Testnet.';
+      } else {
+        userFriendlyMessage = `Transaction failed: ${parsedError}`;
+      }
+      
+      Sentry.captureException(error, {
+        tags: { component: 'KyeContracts', action: 'mintUsdt' },
+        extra: { 
+          amount,
+          addresses: addresses,
+          expectedChainId: DEFAULT_CHAIN_ID,
+          parsedError,
+          errorDetails: {
+            message: error instanceof Error ? error.message : parsedError,
+            name: error instanceof Error ? error.name : 'JSONRPCError',
+            code: error?.code || 'unknown',
+            data: error?.data || null
+          }
+        }
+      });
+      
+      // Throw enhanced error with clear messaging
+      const enhancedError = new Error(userFriendlyMessage);
+      enhancedError.name = 'NetworkMismatchError';
+      throw enhancedError;
     }
-  }, [getAccount, sendTransaction, addresses]);
+  }, [getAccount, sendTransaction, addresses, detectActualNetwork, getErc20TokenBalance]);
 
   return {
     // Factory functions
