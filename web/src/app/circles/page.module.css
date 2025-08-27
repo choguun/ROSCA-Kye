@@ -1449,3 +1449,122 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Circle Card Styles */
+.circleCard {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.circleCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.circleHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.circleHeader h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.circleRole {
+  background: #f3f4f6;
+  color: #374151;
+  padding: 4px 8px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.circleDetails {
+  margin-bottom: 16px;
+}
+
+.circleDetails p {
+  margin: 8px 0;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.circleDetails strong {
+  color: #374151;
+  font-weight: 500;
+}
+
+.circleActions {
+  display: flex;
+  gap: 8px;
+}
+
+.viewButton, .shareButton {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.viewButton {
+  background: #3b82f6;
+  color: white;
+  flex: 1;
+}
+
+.viewButton:hover {
+  background: #2563eb;
+}
+
+.shareButton {
+  background: #10b981;
+  color: white;
+  min-width: 80px;
+}
+
+.shareButton:hover {
+  background: #059669;
+}
+
+/* Circles Header */
+.circlesHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.circlesHeader h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.refreshButton {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s;
+}
+
+.refreshButton:hover {
+  background: #e5e7eb;
+  transform: rotate(45deg);
+}

@@ -26,13 +26,13 @@ import { KYEGROUP_BYTECODE } from '@/utils/contracts/bytecode';
 
 // Utility functions
 function hashLineGroupId(groupId: string): string {
-  // Simple hash for demo - in production use proper crypto
-  return `0x${Buffer.from(groupId).toString('hex').padStart(64, '0')}`;
+  // Create proper 32-byte hash using keccak256
+  return ethers.keccak256(ethers.toUtf8Bytes(groupId));
 }
 
 function hashLineUserId(userId: string): string {
-  // Simple hash for demo - in production use proper crypto  
-  return `0x${Buffer.from(userId).toString('hex').padStart(64, '0')}`;
+  // Create proper 32-byte hash using keccak256
+  return ethers.keccak256(ethers.toUtf8Bytes(userId));
 }
 
 export const useKyeContracts = () => {
@@ -118,6 +118,8 @@ export const useKyeContracts = () => {
     roundDurationDays: number = 30,
     maxMembers: number = 5
   ): Promise<CreateCircleResult> => {
+    let account: string | null = null;
+    
     try {
       console.log('=== CREATE CIRCLE START ===');
       console.log('Circle name:', circleName);
@@ -131,7 +133,7 @@ export const useKyeContracts = () => {
         data: { circleName, depositAmountUsdt, penaltyBps, roundDurationDays, maxMembers }
       });
 
-      const account = await getAccount();
+      account = await getAccount();
       if (!account) {
         throw new Error('Wallet not connected');
       }
@@ -330,6 +332,8 @@ export const useKyeContracts = () => {
   const joinCircle = useCallback(async (
     inviteCode: string // For now, treating invite code as circle address
   ): Promise<JoinCircleResult> => {
+    let account: string | null = null;
+    
     try {
       console.log('=== JOIN CIRCLE START ===');
       console.log('Invite code (circle address):', inviteCode);
@@ -341,7 +345,7 @@ export const useKyeContracts = () => {
         data: { inviteCode }
       });
 
-      const account = await getAccount();
+      account = await getAccount();
       if (!account) {
         throw new Error('Wallet not connected');
       }
@@ -435,8 +439,10 @@ export const useKyeContracts = () => {
 
   // Deposit to current round
   const makeDeposit = useCallback(async (circleAddress: string) => {
+    let account: string | null = null;
+    
     try {
-      const account = await getAccount();
+      account = await getAccount();
       if (!account) {
         throw new Error('Wallet not connected');
       }
@@ -679,6 +685,8 @@ export const useKyeContracts = () => {
 
   // Mint USDT (for testing) - Enhanced with network detection and better error handling
   const mintUsdt = useCallback(async (amount: string) => {
+    let account: string | null = null;
+    
     try {
       console.log('=== MINT USDT START ===');
       console.log('Amount requested:', amount);
@@ -692,7 +700,7 @@ export const useKyeContracts = () => {
         data: { amount, expectedChainId: DEFAULT_CHAIN_ID }
       });
 
-      const account = await getAccount();
+      account = await getAccount();
       console.log('Account retrieved:', account);
       
       if (!account) {

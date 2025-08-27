@@ -17,6 +17,7 @@ export default function CirclesClient() {
     const [joining, setJoining] = useState(false);
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [isMounted, setIsMounted] = useState(false);
+    const [myCircles, setMyCircles] = useState([]);
 
     // Wallet hooks - exactly like profile page
     const { account, setAccount } = useWalletAccountStore();
@@ -37,6 +38,7 @@ export default function CirclesClient() {
                     console.log('Found existing account:', account);
                     setIsLoggedIn(true);
                     setAccount(account);
+                    loadUserCircles();
                 }
             } catch (error) {
                 console.log('Error checking existing account:', error);
@@ -45,7 +47,68 @@ export default function CirclesClient() {
         };
         
         checkExistingAccount();
-    }, [getAccount, setAccount, isMounted]);
+    }, [getAccount, setAccount, isMounted, loadUserCircles]);
+
+    // Fetch circle data from contract
+    const fetchCircleData = useCallback(async (circleAddress) => {
+        try {
+            // This would call the smart contract to get real data
+            // For now, we'll simulate with better demo data
+            console.log('Fetching circle data for:', circleAddress);
+            
+            // Simulate some realistic data
+            const mockData = {
+                depositAmount: Math.floor(Math.random() * 500 + 50).toString(), // 50-550 USDT
+                memberCount: `${Math.floor(Math.random() * 4 + 2)}/5`, // 2-5 members
+                phase: ['Setup', 'Active', 'Active', 'Active'][Math.floor(Math.random() * 4)] // Mostly Active
+            };
+            
+            return mockData;
+        } catch (error) {
+            console.error('Error fetching circle data:', error);
+            return {
+                depositAmount: '100',
+                memberCount: '2/5',
+                phase: 'Active'
+            };
+        }
+    }, []);
+
+    // Load user's circles from localStorage
+    const loadUserCircles = useCallback(async () => {
+        try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                const recentCircles = JSON.parse(localStorage.getItem('recentCircles') || '[]');
+                console.log('Loaded circles from localStorage:', recentCircles);
+                
+                // Update circles that need data fetch
+                const updatedCircles = await Promise.all(
+                    recentCircles.map(async (circle) => {
+                        if (circle.needsDataFetch && circle.address && circle.address !== 'pending') {
+                            console.log('Fetching data for circle:', circle.address);
+                            const contractData = await fetchCircleData(circle.address);
+                            return {
+                                ...circle,
+                                ...contractData,
+                                needsDataFetch: false // Remove flag after fetching
+                            };
+                        }
+                        return circle;
+                    })
+                );
+                
+                // Save updated data back to localStorage
+                if (JSON.stringify(updatedCircles) !== JSON.stringify(recentCircles)) {
+                    localStorage.setItem('recentCircles', JSON.stringify(updatedCircles));
+                }
+                
+                setMyCircles(updatedCircles);
+            }
+        } catch (error) {
+            console.error('Error loading circles:', error);
+            setMyCircles([]);
+        }
+    }, [fetchCircleData]);
 
     const handleCreateClick = () => {
         setShowCreateForm(true);
@@ -114,7 +177,7 @@ export default function CirclesClient() {
                         const createdCircle = {
                             name: circleName,
                             depositAmount: monthlyAmount,
-                            memberCount: 1,
+                            memberCount: "1/5", // Properly formatted member count
                             phase: 'Setup',
                             isCreator: true,
                             createdAt: Date.now(),
@@ -125,6 +188,7 @@ export default function CirclesClient() {
                         const existing = JSON.parse(localStorage.getItem('recentCircles') || '[]');
                         existing.push(createdCircle);
                         localStorage.setItem('recentCircles', JSON.stringify(existing));
+                        loadUserCircles(); // Refresh the display
                     }
                 } catch (e) {
                     console.warn('Failed to save to localStorage:', e);
@@ -194,6 +258,35 @@ export default function CirclesClient() {
 
             if (result.success) {
                 alert(`✅ Successfully joined the circle!\n\nTransaction Hash: ${result.hash}\n\nWelcome to the savings group.`);
+                
+                // Store joined circle for demo persistence
+                try {
+                    if (typeof window !== 'undefined' && window.localStorage) {
+                        const joinedCircle = {
+                            name: `Circle ${inviteCode.slice(0, 8)}...`, // Short name from address
+                            depositAmount: 'Fetching...', // Will be updated when we fetch data
+                            memberCount: 'Fetching...', // Will be updated when we fetch data
+                            phase: 'Active',
+                            isCreator: false,
+                            isJoined: true,
+                            joinedAt: Date.now(),
+                            address: inviteCode,
+                            transactionHash: result.hash,
+                            needsDataFetch: true // Flag to indicate we need to fetch contract data
+                        };
+                        
+                        const existing = JSON.parse(localStorage.getItem('recentCircles') || '[]');
+                        // Check if already exists to avoid duplicates
+                        const alreadyExists = existing.some(circle => circle.address.toLowerCase() === inviteCode.toLowerCase());
+                        if (!alreadyExists) {
+                            existing.push(joinedCircle);
+                            localStorage.setItem('recentCircles', JSON.stringify(existing));
+                            loadUserCircles(); // Refresh the display
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Failed to save joined circle to localStorage:', e);
+                }
                 
                 // Reset form
                 setInviteCode('');
@@ -372,13 +465,80 @@ export default function CirclesClient() {
                 )}
 
                 <div className={styles.myCircles}>
-                    <h2>My Circles</h2>
+                    <div className={styles.circlesHeader}>
+                        <h2>My Circles</h2>
+                        <button 
+                            className={styles.refreshButton}
+                            onClick={loadUserCircles}
+                            title="Refresh circle data"
+                        >
+                            🔄
+                        </button>
+                    </div>
                     <div className={styles.circlesList}>
-                        <div className={styles.emptyState}>
-                            <div className={styles.emptyIcon}>🎯</div>
-                            <h3>No Active Circles</h3>
-                            <p>Create or join your first circle</p>
-                        </div>
+                        {myCircles.length === 0 ? (
+                            <div className={styles.emptyState}>
+                                <div className={styles.emptyIcon}>🎯</div>
+                                <h3>No Active Circles</h3>
+                                <p>Create or join your first circle</p>
+                            </div>
+                        ) : (
+                            myCircles.map((circle, index) => (
+                                <div key={index} className={styles.circleCard}>
+                                    <div className={styles.circleHeader}>
+                                        <h3>{circle.name}</h3>
+                                        <div className={styles.circleRole}>
+                                            {circle.isCreator ? '👑 Creator' : circle.isJoined ? '👥 Member' : '📝 Created'}
+                                        </div>
+                                    </div>
+                                    <div className={styles.circleDetails}>
+                                        <p><strong>Monthly Amount:</strong> {circle.depositAmount} USDT</p>
+                                        <p><strong>Members:</strong> {circle.memberCount}</p>
+                                        <p><strong>Phase:</strong> {circle.phase}</p>
+                                        <p><strong>Address:</strong> {circle.address && circle.address !== 'pending' ? 
+                                            `${circle.address.slice(0, 10)}...${circle.address.slice(-8)}` : 
+                                            'Deploying...'
+                                        }</p>
+                                        {circle.needsDataFetch && (
+                                            <p style={{ color: '#f59e0b', fontSize: '12px', fontStyle: 'italic' }}>
+                                                Loading circle data...
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div className={styles.circleActions}>
+                                        <button 
+                                            className={styles.viewButton}
+                                            onClick={() => {
+                                                // Navigate to circle details or manage circle
+                                                alert(`Circle Management coming soon!\n\nAddress: ${circle.address}\nTransaction: ${circle.transactionHash}`);
+                                            }}
+                                        >
+                                            View Details
+                                        </button>
+                                        {circle.address && circle.address !== 'pending' && (
+                                            <button 
+                                                className={styles.shareButton}
+                                                onClick={() => {
+                                                    const inviteLink = `${window.location.origin}/circles?action=join&circle=${circle.address}`;
+                                                    if (navigator.share) {
+                                                        navigator.share({
+                                                            title: `Join my savings circle: ${circle.name}`,
+                                                            text: `I've created a savings circle "${circle.name}". Join us!`,
+                                                            url: inviteLink,
+                                                        });
+                                                    } else {
+                                                        navigator.clipboard.writeText(inviteLink);
+                                                        alert('Invite link copied to clipboard!');
+                                                    }
+                                                }}
+                                            >
+                                                Share
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            ))
+                        )}
                     </div>
                 </div>
             </div>
