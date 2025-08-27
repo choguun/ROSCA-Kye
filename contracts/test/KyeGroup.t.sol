@@ -44,7 +44,8 @@ contract KyeGroupTest is Test {
             LINE_GROUP_ID,
             DEPOSIT_AMOUNT,
             PENALTY_BPS,
-            ROUND_DURATION
+            ROUND_DURATION,
+            5 // maxMembers
         );
         
         // Distribute USDT to members

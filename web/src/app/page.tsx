@@ -66,14 +66,13 @@ export default function Home() {
                 <div className={styles.onboarding}>
                     <div className={styles.hero}>
                         <div className={styles.heroIcon}>🏠</div>
-                        <h1 className={styles.heroTitle}>계 (Kye) - Korean Savings Heritage</h1>
+                        <h1 className={styles.heroTitle}>계 (Kye) - Social Savings Circle</h1>
                         <p className={styles.heroSubtitle}>
                             5,000 years of Korean trust tradition meets Web3 transparency
                         </p>
-                        <p className={styles.culturalTag}>
-                            🇰🇷 <em>From grandparents' wisdom to blockchain innovation</em>
-                        </p>
-                        <WalletButton setIsLoggedIn={setIsLoggedIn}/>
+                        <div className={styles.walletSection1}>
+                            <WalletButton setIsLoggedIn={setIsLoggedIn}/>
+                        </div>
                     </div>
                     
                     <div className={styles.benefits}>
@@ -91,44 +90,6 @@ export default function Home() {
                             <span className={styles.benefitIcon}>⚡</span>
                             <h3>Web3 Enhanced</h3>
                             <p>Blockchain transparency eliminates trust issues while preserving Korean social values</p>
-                        </div>
-                    </div>
-                    
-                    <div className={styles.competitiveAdvantage}>
-                        <h3>Why Kye + Kaia Dominates Generic Group Buying</h3>
-                        <div className={styles.comparisonGrid}>
-                            <div className={styles.comparisonCard}>
-                                <span className={styles.comparisonIcon}>❌</span>
-                                <h4>Generic Commerce Apps</h4>
-                                <ul>
-                                    <li>Depend on merchants & complex backends</li>
-                                    <li>Users must hold native tokens for gas</li>
-                                    <li>Bridged USDT with delays & risks</li>
-                                    <li>No real community building</li>
-                                    <li>Theoretical "x402" integrations</li>
-                                </ul>
-                            </div>
-                            <div className={styles.comparisonCard}>
-                                <span className={styles.comparisonIcon}>✅</span>
-                                <h4>Kye + Kaia Blockchain</h4>
-                                <ul>
-                                    <li>Pure peer-to-peer Korean heritage</li>
-                                    <li>Pay fees with USDT (trustless gas abstraction)</li>
-                                    <li>Native USDT by Tether (not bridged)</li>
-                                    <li>Deep social bonds through LINE integration</li>
-                                    <li>REAL tech: 250M+ users, EVM compatible</li>
-                                </ul>
-                            </div>
-                        </div>
-                        <div className={styles.kaiaAdvantage}>
-                            <div className={styles.kaiaIcon}>🚨</div>
-                            <div>
-                                <h4>EXPOSED: Competitor's False "x402" Claims vs Our Reality:</h4>
-                                <p><strong>Their Code:</strong> Standard ERC20 transfers, users pay gas, no x402 found • <strong>Our Reality:</strong> REAL gas abstraction, native USDT, 250M+ LINE users, Korean heritage</p>
-                                <div className={styles.evidenceLink}>
-                                    <span>📋 Technical proof available in code analysis</span>
-                                </div>
-                            </div>
                         </div>
                     </div>
 

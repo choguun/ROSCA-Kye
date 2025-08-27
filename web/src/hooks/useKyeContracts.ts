@@ -110,17 +110,23 @@ export const useKyeContracts = () => {
 
   // Factory contract interactions
   const createCircle = useCallback(async (
-    lineGroupId: string,
+    circleName: string,
     depositAmountUsdt: string,
     penaltyBps: number = 500, // 5%
-    roundDurationDays: number = 30
+    roundDurationDays: number = 30,
+    maxMembers: number = 5
   ): Promise<CreateCircleResult> => {
     try {
+      console.log('=== CREATE CIRCLE START ===');
+      console.log('Circle name:', circleName);
+      console.log('Deposit amount (USDT):', depositAmountUsdt);
+      console.log('Available addresses:', addresses);
+
       Sentry.addBreadcrumb({
         message: 'Creating new Kye circle',
         category: 'contract',
         level: 'info',
-        data: { depositAmountUsdt, penaltyBps, roundDurationDays }
+        data: { circleName, depositAmountUsdt, penaltyBps, roundDurationDays, maxMembers }
       });
 
       const account = await getAccount();
@@ -128,57 +134,120 @@ export const useKyeContracts = () => {
         throw new Error('Wallet not connected');
       }
 
-      const params: CircleParams = {
+      // Use circle name as LINE group ID for demo purposes
+      const lineGroupId = `group_${circleName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+      console.log('Generated LINE group ID:', lineGroupId);
+
+      // Prepare CircleParams matching the smart contract structure
+      const params = {
         usdtToken: addresses.MockUSDT,
         yieldAdapter: addresses.SavingsPocket,
         lineGroupIdHash: hashLineGroupId(lineGroupId),
-        depositAmount: (parseFloat(depositAmountUsdt) * 1e6).toString(), // USDT has 6 decimals
-        penaltyBps: (penaltyBps * 100).toString(), // Convert to basis points
-        roundDuration: (roundDurationDays * 24 * 60 * 60).toString() // Convert to seconds
+        depositAmount: depositAmountUsdt, // Already in wei format from UI (multiplied by 1e6)
+        penaltyBps: penaltyBps.toString(), // 500 = 5% penalty
+        roundDuration: (roundDurationDays * 24 * 60 * 60).toString() // Convert days to seconds
       };
 
-      // Generate salt for CREATE2 deployment
-      const salt = `0x${Math.random().toString(16).substr(2, 64)}`;
+      console.log('Circle params:', params);
+
+      // Generate deterministic salt for CREATE2 deployment
+      const salt = ethers.keccak256(ethers.toUtf8Bytes(`${circleName}_${Date.now()}`));
+      console.log('Generated salt:', salt);
+
+      // Encode the deployCircle function call using ethers Interface
+      const factoryInterface = new ethers.Interface(KYE_FACTORY_ABI);
+      const deployCircleData = factoryInterface.encodeFunctionData('deployCircle', [
+        salt,
+        [
+          params.usdtToken,
+          params.yieldAdapter,
+          params.lineGroupIdHash,
+          params.depositAmount,
+          params.penaltyBps,
+          params.roundDuration,
+          maxMembers
+        ]
+      ]);
+
+      console.log('✅ Encoded deployCircle call:', deployCircleData);
+
+      // Prepare transaction with proper gas
+      const gasLimit = 3000000; // High gas limit for contract deployment
+      const gasLimitHex = '0x' + gasLimit.toString(16);
 
       const tx = {
         from: account,
         to: addresses.KyeFactory,
-        value: '0',
-        gas: '2000000',
-        // In real implementation, encode deployCircle call with params
+        value: '0x0',
+        gas: gasLimitHex,
+        data: deployCircleData
       };
 
+      console.log('📤 Sending deployCircle transaction...');
+      console.log('Transaction details:');
+      console.log('- From:', account);
+      console.log('- To (Factory):', addresses.KyeFactory);
+      console.log('- Gas (decimal):', gasLimit);
+      console.log('- Gas (hex):', gasLimitHex);
+      console.log('- Data:', deployCircleData);
+
+      // Validate transaction format
+      const validationResult = validateTransactionFormat(tx);
+      if (!validationResult.isValid) {
+        console.error('❌ Transaction format validation failed:', validationResult.errors);
+        throw new Error(`Transaction format errors: ${validationResult.errors.join(', ')}`);
+      }
+
+      console.log('🚀 All validations passed, deploying circle...');
       const result = await sendTransaction(tx);
-      
-      // In real implementation, extract circle address from transaction logs
-      const mockCircleAddress = '0x' + Math.random().toString(16).substr(2, 40);
+      console.log('✅ Circle deployment transaction sent:', result);
 
       Sentry.addBreadcrumb({
         message: 'Circle created successfully',
         category: 'contract', 
         level: 'info',
-        data: { circleAddress: mockCircleAddress }
+        data: { transactionHash: result, circleName }
       });
+
+      console.log('=== CREATE CIRCLE SUCCESS ===');
 
       return {
         hash: result as string,
         success: true,
-        circleAddress: mockCircleAddress
+        circleAddress: 'pending', // Will be determined from transaction receipt
+        salt: salt // Include salt for future address calculation if needed
       };
 
     } catch (error) {
+      console.error('=== CREATE CIRCLE ERROR ===');
+      console.error('Raw error:', error);
+
+      let userFriendlyMessage = 'Failed to create circle';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('network') || error.message.includes('Network')) {
+          userFriendlyMessage = `Network Error: ${error.message}\n\nTry switching to Kaia Kairos Testnet manually in your wallet.`;
+        } else if (error?.code === 4001) {
+          userFriendlyMessage = 'Transaction rejected by user';
+        } else if (error?.code === -32603) {
+          userFriendlyMessage = `Contract Error: ${error.message}\n\nCheck network and contract addresses.`;
+        } else {
+          userFriendlyMessage = `Error: ${error.message}`;
+        }
+      }
+
       Sentry.captureException(error, {
         tags: { component: 'KyeContracts', action: 'createCircle' },
-        extra: { lineGroupId, depositAmountUsdt }
+        extra: { circleName, depositAmountUsdt, addresses }
       });
 
       return {
         hash: '',
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: userFriendlyMessage
       };
     }
-  }, [callContract, addresses, getAccount, sendTransaction]);
+  }, [addresses, getAccount, sendTransaction]);
 
   // Get circles for a LINE group
   const getCirclesForGroup = useCallback(async (lineGroupId: string): Promise<string[]> => {
@@ -225,15 +294,17 @@ export const useKyeContracts = () => {
 
   // Circle contract interactions
   const joinCircle = useCallback(async (
-    circleAddress: string,
-    lineUserId: string
+    inviteCode: string // For now, treating invite code as circle address
   ): Promise<JoinCircleResult> => {
     try {
+      console.log('=== JOIN CIRCLE START ===');
+      console.log('Invite code (circle address):', inviteCode);
+
       Sentry.addBreadcrumb({
         message: 'Joining Kye circle',
         category: 'contract',
         level: 'info',
-        data: { circleAddress }
+        data: { inviteCode }
       });
 
       const account = await getAccount();
@@ -241,40 +312,89 @@ export const useKyeContracts = () => {
         throw new Error('Wallet not connected');
       }
 
+      // For demo, use account address as LINE user ID
+      const lineUserId = `user_${account.toLowerCase()}`;
       const userIdHash = hashLineUserId(lineUserId);
+      console.log('Generated LINE user ID hash:', userIdHash);
+
+      // Encode the joinCircle function call
+      const groupInterface = new ethers.Interface(KYE_GROUP_ABI);
+      const joinCircleData = groupInterface.encodeFunctionData('joinCircle', [userIdHash]);
+
+      console.log('✅ Encoded joinCircle call:', joinCircleData);
+
+      // Prepare transaction
+      const gasLimit = 500000;
+      const gasLimitHex = '0x' + gasLimit.toString(16);
 
       const tx = {
         from: account,
-        to: circleAddress,
-        value: '0',
-        gas: '500000',
-        // In real implementation, encode joinCircle call with userIdHash
+        to: inviteCode, // Using invite code as circle address for demo
+        value: '0x0',
+        gas: gasLimitHex,
+        data: joinCircleData
       };
 
+      console.log('📤 Sending joinCircle transaction...');
+      console.log('Transaction details:');
+      console.log('- From:', account);
+      console.log('- To (Circle):', inviteCode);
+      console.log('- Gas (hex):', gasLimitHex);
+      console.log('- Data:', joinCircleData);
+
+      // Validate transaction format
+      const validationResult = validateTransactionFormat(tx);
+      if (!validationResult.isValid) {
+        console.error('❌ Transaction format validation failed:', validationResult.errors);
+        throw new Error(`Transaction format errors: ${validationResult.errors.join(', ')}`);
+      }
+
+      console.log('🚀 All validations passed, joining circle...');
       const result = await sendTransaction(tx);
+      console.log('✅ Circle join transaction sent:', result);
 
       Sentry.addBreadcrumb({
         message: 'Successfully joined circle',
         category: 'contract',
-        level: 'info'
+        level: 'info',
+        data: { transactionHash: result }
       });
+
+      console.log('=== JOIN CIRCLE SUCCESS ===');
 
       return {
         hash: result as string,
         success: true,
-        memberIndex: Math.floor(Math.random() * 5) // Mock member index
+        memberIndex: 0 // Will be determined from transaction receipt
       };
 
     } catch (error) {
+      console.error('=== JOIN CIRCLE ERROR ===');
+      console.error('Raw error:', error);
+
+      let userFriendlyMessage = 'Failed to join circle';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('network') || error.message.includes('Network')) {
+          userFriendlyMessage = `Network Error: ${error.message}\n\nTry switching to Kaia Kairos Testnet manually in your wallet.`;
+        } else if (error?.code === 4001) {
+          userFriendlyMessage = 'Transaction rejected by user';
+        } else if (error?.code === -32603) {
+          userFriendlyMessage = `Contract Error: ${error.message}\n\nCheck network and contract addresses.`;
+        } else {
+          userFriendlyMessage = `Error: ${error.message}`;
+        }
+      }
+
       Sentry.captureException(error, {
         tags: { component: 'KyeContracts', action: 'joinCircle' },
-        extra: { circleAddress }
+        extra: { inviteCode, account }
       });
 
       return {
         hash: '',
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: userFriendlyMessage
       };
     }
   }, [getAccount, sendTransaction]);
@@ -429,6 +549,61 @@ export const useKyeContracts = () => {
       return null;
     }
   }, [getAccount, getErc20TokenBalance]);
+
+  // Get contract address from transaction receipt
+  const getContractAddressFromTx = useCallback(async (txHash: string): Promise<string | null> => {
+    try {
+      console.log('🔍 Getting contract address from transaction:', txHash);
+      
+      // Get provider
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      
+      // Wait for transaction receipt
+      const receipt = await provider.getTransactionReceipt(txHash);
+      
+      if (!receipt) {
+        console.log('❌ Transaction receipt not found yet');
+        return null;
+      }
+      
+      console.log('✅ Transaction receipt:', receipt);
+      
+      // Look for contract creation in logs or events
+      // For factory contracts, the new contract address is usually in events
+      if (receipt.logs && receipt.logs.length > 0) {
+        console.log('📋 Analyzing transaction logs for contract address...');
+        
+        // Look for CircleDeployed event or similar
+        const factoryInterface = new ethers.Interface(KYE_FACTORY_ABI);
+        
+        for (const log of receipt.logs) {
+          try {
+            const parsedLog = factoryInterface.parseLog(log);
+            if (parsedLog && parsedLog.name === 'CircleDeployed') {
+              const contractAddress = parsedLog.args.circle || parsedLog.args.circleAddress;
+              console.log('✅ Found contract address from CircleDeployed event:', contractAddress);
+              return contractAddress;
+            }
+          } catch (parseError) {
+            // Log might not be from our factory, continue
+            continue;
+          }
+        }
+      }
+      
+      // If no events found, the contract might be directly created
+      if (receipt.contractAddress) {
+        console.log('✅ Found contract address from receipt.contractAddress:', receipt.contractAddress);
+        return receipt.contractAddress;
+      }
+      
+      console.log('❌ No contract address found in transaction receipt');
+      return null;
+    } catch (error) {
+      console.error('❌ Error getting contract address from transaction:', error);
+      return null;
+    }
+  }, []);
 
   // Enhanced JSON-RPC error parser
   const parseJsonRpcError = (error: any): string => {
@@ -661,6 +836,7 @@ export const useKyeContracts = () => {
     createCircle,
     getCirclesForGroup,
     getCircleMetadata,
+    getContractAddressFromTx,
     
     // Circle functions
     joinCircle,

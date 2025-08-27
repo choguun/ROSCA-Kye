@@ -6,6 +6,7 @@ import {Bootstrap} from "@/components/Bootstrap/Bootstrap";
 import {QueryClientProvider} from "@tanstack/react-query";
 import {queryClient} from "@/components/Query/QueryClient.hooks";
 import {ErudaFixed} from "@/components/Debug/ErudaFixed";
+import {LineDetector} from "@/components/LineDetector/LineDetector";
 import styles from "./layout.module.css";
 
 const geistSans = Geist({
@@ -36,6 +37,7 @@ export default function RootLayout({
                   {children}
                   <Footer className={styles.footer}/>
               </Bootstrap>
+              <LineDetector />
               <ErudaFixed />
           </QueryClientProvider>
       </body>

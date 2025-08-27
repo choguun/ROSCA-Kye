@@ -44,7 +44,8 @@ contract KyeFactoryTest is Test {
             lineGroupIdHash: LINE_GROUP_ID,
             depositAmount: DEPOSIT_AMOUNT,
             penaltyBps: PENALTY_BPS,
-            roundDuration: ROUND_DURATION
+            roundDuration: ROUND_DURATION,
+            maxMembers: 5
         });
         
         bytes32 salt = keccak256("test-salt");
@@ -85,7 +86,8 @@ contract KyeFactoryTest is Test {
             lineGroupIdHash: LINE_GROUP_ID,
             depositAmount: DEPOSIT_AMOUNT,
             penaltyBps: PENALTY_BPS,
-            roundDuration: ROUND_DURATION
+            roundDuration: ROUND_DURATION,
+            maxMembers: 5
         });
         
         bytes32 salt = keccak256("test-salt");
@@ -109,7 +111,8 @@ contract KyeFactoryTest is Test {
             lineGroupIdHash: bytes32(0), // Invalid
             depositAmount: DEPOSIT_AMOUNT,
             penaltyBps: PENALTY_BPS,
-            roundDuration: ROUND_DURATION
+            roundDuration: ROUND_DURATION,
+            maxMembers: 5
         });
         
         bytes32 salt = keccak256("test-salt");
@@ -126,7 +129,8 @@ contract KyeFactoryTest is Test {
             lineGroupIdHash: LINE_GROUP_ID,
             depositAmount: 0, // Invalid
             penaltyBps: PENALTY_BPS,
-            roundDuration: ROUND_DURATION
+            roundDuration: ROUND_DURATION,
+            maxMembers: 5
         });
         
         bytes32 salt = keccak256("test-salt");
@@ -143,7 +147,8 @@ contract KyeFactoryTest is Test {
             lineGroupIdHash: LINE_GROUP_ID,
             depositAmount: DEPOSIT_AMOUNT,
             penaltyBps: 6000, // 60% - too high
-            roundDuration: ROUND_DURATION
+            roundDuration: ROUND_DURATION,
+            maxMembers: 5
         });
         
         bytes32 salt = keccak256("test-salt");
@@ -160,7 +165,8 @@ contract KyeFactoryTest is Test {
             lineGroupIdHash: LINE_GROUP_ID,
             depositAmount: DEPOSIT_AMOUNT,
             penaltyBps: PENALTY_BPS,
-            roundDuration: 30 minutes // Too short
+            roundDuration: 30 minutes, // Too short
+            maxMembers: 5
         });
         
         bytes32 salt = keccak256("test-salt");
@@ -178,7 +184,8 @@ contract KyeFactoryTest is Test {
             lineGroupIdHash: LINE_GROUP_ID,
             depositAmount: DEPOSIT_AMOUNT,
             penaltyBps: PENALTY_BPS,
-            roundDuration: ROUND_DURATION
+            roundDuration: ROUND_DURATION,
+            maxMembers: 5
         });
         
         bytes32 salt = keccak256("test-salt");
@@ -216,7 +223,8 @@ contract KyeFactoryTest is Test {
             lineGroupIdHash: LINE_GROUP_ID,
             depositAmount: DEPOSIT_AMOUNT,
             penaltyBps: PENALTY_BPS,
-            roundDuration: ROUND_DURATION
+            roundDuration: ROUND_DURATION,
+            maxMembers: 5
         });
         
         vm.startPrank(creator);
@@ -270,7 +278,8 @@ contract KyeFactoryTest is Test {
             lineGroupIdHash: LINE_GROUP_ID,
             depositAmount: DEPOSIT_AMOUNT,
             penaltyBps: PENALTY_BPS,
-            roundDuration: ROUND_DURATION
+            roundDuration: ROUND_DURATION,
+            maxMembers: 5
         });
         
         bytes32 salt = keccak256("test-salt");
@@ -286,5 +295,87 @@ contract KyeFactoryTest is Test {
         (isValid, reason) = factory.validateCircle(address(0x999));
         assertFalse(isValid);
         assertEq(reason, "Circle not registered");
+    }
+
+    function testFlexibleMemberCounts() public {
+        // Test 2-member circle
+        KyeFactory.CircleParams memory params2 = KyeFactory.CircleParams({
+            usdtToken: address(0),
+            yieldAdapter: address(0),
+            lineGroupIdHash: keccak256("2-member-group"),
+            depositAmount: DEPOSIT_AMOUNT,
+            penaltyBps: PENALTY_BPS,
+            roundDuration: ROUND_DURATION,
+            maxMembers: 2
+        });
+        
+        vm.prank(creator);
+        address circle2 = factory.deployCircle(keccak256("salt-2"), params2);
+        KyeGroup kyeGroup2 = KyeGroup(circle2);
+        assertEq(kyeGroup2.maxMembers(), 2);
+
+        // Test 3-member circle
+        KyeFactory.CircleParams memory params3 = KyeFactory.CircleParams({
+            usdtToken: address(0),
+            yieldAdapter: address(0),
+            lineGroupIdHash: keccak256("3-member-group"),
+            depositAmount: DEPOSIT_AMOUNT,
+            penaltyBps: PENALTY_BPS,
+            roundDuration: ROUND_DURATION,
+            maxMembers: 3
+        });
+        
+        vm.prank(creator);
+        address circle3 = factory.deployCircle(keccak256("salt-3"), params3);
+        KyeGroup kyeGroup3 = KyeGroup(circle3);
+        assertEq(kyeGroup3.maxMembers(), 3);
+
+        // Test 5-member circle (original)
+        KyeFactory.CircleParams memory params5 = KyeFactory.CircleParams({
+            usdtToken: address(0),
+            yieldAdapter: address(0),
+            lineGroupIdHash: keccak256("5-member-group"),
+            depositAmount: DEPOSIT_AMOUNT,
+            penaltyBps: PENALTY_BPS,
+            roundDuration: ROUND_DURATION,
+            maxMembers: 5
+        });
+        
+        vm.prank(creator);
+        address circle5 = factory.deployCircle(keccak256("salt-5"), params5);
+        KyeGroup kyeGroup5 = KyeGroup(circle5);
+        assertEq(kyeGroup5.maxMembers(), 5);
+    }
+
+    function testInvalidMemberCounts() public {
+        // Test invalid member count (1)
+        KyeFactory.CircleParams memory params1 = KyeFactory.CircleParams({
+            usdtToken: address(0),
+            yieldAdapter: address(0),
+            lineGroupIdHash: keccak256("1-member-group"),
+            depositAmount: DEPOSIT_AMOUNT,
+            penaltyBps: PENALTY_BPS,
+            roundDuration: ROUND_DURATION,
+            maxMembers: 1
+        });
+        
+        vm.prank(creator);
+        vm.expectRevert("Invalid member count");
+        factory.deployCircle(keccak256("salt-1"), params1);
+
+        // Test invalid member count (6)
+        KyeFactory.CircleParams memory params6 = KyeFactory.CircleParams({
+            usdtToken: address(0),
+            yieldAdapter: address(0),
+            lineGroupIdHash: keccak256("6-member-group"),
+            depositAmount: DEPOSIT_AMOUNT,
+            penaltyBps: PENALTY_BPS,
+            roundDuration: ROUND_DURATION,
+            maxMembers: 6
+        });
+        
+        vm.prank(creator);
+        vm.expectRevert("Invalid member count");
+        factory.deployCircle(keccak256("salt-6"), params6);
     }
 }

@@ -472,7 +472,12 @@ export default function Event () {
                                             </div>
                                             <div className={styles.balanceItem}>
                                                 <span className={styles.tokenName}>💰 Mock USDT:</span>
-                                                <span className={styles.tokenBalance}>{usdtBalance}</span>
+                                                <span className={styles.tokenBalance}>
+                                                    {Number(usdtBalance).toLocaleString('en-US', {
+                                                        minimumFractionDigits: 2,
+                                                        maximumFractionDigits: 2,
+                                                    })}
+                                                </span>
                                             </div>
                                         </>
                                     )}
@@ -488,161 +493,20 @@ export default function Event () {
                                     </button>
                                     
                                     <button 
-                                        className={styles.networkButton} 
-                                        onClick={checkNetworkStatus}
-                                        disabled={networkChecking}
-                                    >
-                                        {networkChecking ? 'Checking Network...' : '🌐 Check Network'}
-                                    </button>
-                                    
-                                    <button 
                                         className={styles.mintButton} 
                                         onClick={onMintUsdtClick}
                                         disabled={minting || loading}
                                     >
-                                        {minting ? 'Minting...' : '💰 Mint 1000 USDT'}
+                                        {minting ? 'Minting...' : '💰 Mint 1,000 USDT'}
                                     </button>
-                                    
+
                                     <button 
-                                        className={styles.testButton} 
-                                        onClick={testSentryLogging}
+                                        className={styles.faucetButton} 
+                                        onClick={() => window.open('https://www.kaia.io/faucet', '_blank')}
                                     >
-                                        🔍 Test Sentry Logs
+                                        🚰 Get KAIA Tokens
                                     </button>
-                                    
-                                    <button 
-                                        className={styles.switchButton} 
-                                        onClick={showNetworkInstructions}
-                                    >
-                                        📋 Show Network Setup Guide
-                                    </button>
-                                    
-                                    <button 
-                                        className={styles.debugButton} 
-                                        onClick={async () => {
-                                            const debugHelper = (window as any).__ERUDA_DEBUG__;
-                                            const liffDebugHelper = (window as any).__LIFF_DEBUG__;
-                                            
-                                            if (debugHelper) {
-                                                debugHelper.group('WALLET DEBUG REPORT', async () => {
-                                                    // Current app state
-                                                    debugHelper.log('APP_STATE', {
-                                                        account,
-                                                        kaiaBalance,
-                                                        usdtBalance,
-                                                        loading,
-                                                        minting,
-                                                        isLoggedIn,
-                                                        networkStatus,
-                                                        timestamp: new Date().toISOString()
-                                                    });
-                                                    
-                                                    // Environment variables
-                                                    debugHelper.log('ENVIRONMENT', {
-                                                        NODE_ENV: process.env.NODE_ENV,
-                                                        NEXT_PUBLIC_CHAIN_ID: process.env.NEXT_PUBLIC_CHAIN_ID,
-                                                        NEXT_PUBLIC_CLIENT_ID: process.env.NEXT_PUBLIC_CLIENT_ID,
-                                                        NEXT_PUBLIC_LIFF_ID: process.env.NEXT_PUBLIC_LIFF_ID
-                                                    });
-                                                    
-                                                    // Browser information
-                                                    debugHelper.log('BROWSER_INFO', {
-                                                        userAgent: navigator.userAgent,
-                                                        platform: navigator.platform,
-                                                        cookieEnabled: navigator.cookieEnabled,
-                                                        onLine: navigator.onLine,
-                                                        language: navigator.language,
-                                                        isLineApp: /Line/i.test(navigator.userAgent),
-                                                        viewport: {
-                                                            width: window.innerWidth,
-                                                            height: window.innerHeight
-                                                        },
-                                                        screen: {
-                                                            width: screen.width,
-                                                            height: screen.height
-                                                        }
-                                                    });
-                                                    
-                                                    // LIFF debug information
-                                                    if (liffDebugHelper) {
-                                                        const liffInfo = await liffDebugHelper.getInfo();
-                                                        debugHelper.log('LIFF_DEBUG_INFO', liffInfo);
-                                                        
-                                                        const liffFeatures = await liffDebugHelper.testLiffFeatures();
-                                                        debugHelper.log('LIFF_FEATURES', liffFeatures);
-                                                    }
-                                                    
-                                                    // Wallet connection test
-                                                    if (account) {
-                                                        try {
-                                                            const currentChainId = await getChainId();
-                                                            debugHelper.log('WALLET_CONNECTION', {
-                                                                connected: true,
-                                                                account,
-                                                                chainId: currentChainId,
-                                                                expectedChainId: process.env.NEXT_PUBLIC_CHAIN_ID,
-                                                                networkMatch: currentChainId.toString() === process.env.NEXT_PUBLIC_CHAIN_ID
-                                                            });
-                                                        } catch (error) {
-                                                            debugHelper.error('WALLET_CONNECTION_ERROR', error);
-                                                        }
-                                                    } else {
-                                                        debugHelper.warn('WALLET_NOT_CONNECTED', 'No wallet account found');
-                                                    }
-                                                    
-                                                    // Local storage check
-                                                    debugHelper.log('LOCAL_STORAGE', {
-                                                        erudaDebug: localStorage.getItem('eruda-debug'),
-                                                        storageKeys: Object.keys(localStorage)
-                                                    });
-                                                    
-                                                    debugHelper.success('DEBUG_REPORT_COMPLETE', 'All debugging information logged above');
-                                                });
-                                            } else {
-                                                console.log('🟡 ERUDA DEBUG: Debug info triggered');
-                                                console.log('🟡 ERUDA DEBUG: Current state:', {
-                                                    account,
-                                                    kaiaBalance,
-                                                    usdtBalance,
-                                                    loading,
-                                                    minting,
-                                                    isLoggedIn,
-                                                    networkStatus
-                                                });
-                                            }
-                                            
-                                            const isLineApp = /Line/i.test(navigator.userAgent);
-                                            alert(`🔧 Comprehensive debug report generated!\n\nCheck Eruda console for:\n• App State\n• Environment Variables\n• Browser Info${isLineApp ? '\n• LIFF Debug Info\n• LIFF Feature Test' : ''}\n• Wallet Connection\n• Local Storage\n\nTip: Keep Eruda open while testing to see real-time logs.`);
-                                        }}
-                                    >
-                                        🔧 Full Debug Report
-                                    </button>
-                                    
-                                    {typeof window !== 'undefined' && /Line/i.test(navigator.userAgent) && (
-                                        <button 
-                                            className={styles.liffButton} 
-                                            onClick={async () => {
-                                                const liffDebugHelper = (window as any).__LIFF_DEBUG__;
-                                                
-                                                if (liffDebugHelper) {
-                                                    // Export LIFF debug data
-                                                    const debugData = liffDebugHelper.exportDebugData();
-                                                    
-                                                    // Also log to console
-                                                    const debugHelper = (window as any).__ERUDA_DEBUG__;
-                                                    if (debugHelper) {
-                                                        debugHelper.group('LIFF EXPORT DEBUG', () => {
-                                                            debugHelper.log('LIFF_EXPORT_DATA', debugData);
-                                                        });
-                                                    }
-                                                } else {
-                                                    alert('LIFF Debug helper not available. Please refresh the page and try again.');
-                                                }
-                                            }}
-                                        >
-                                            📲 Export LIFF Debug
-                                        </button>
-                                    )}
+
                                 </div>
                                 
                                 <button className={styles.button} onClick={onDisconnectButtonClick}>

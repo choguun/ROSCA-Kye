@@ -234,6 +234,47 @@
     left: 100%;
 }
 
+.faucetButton {
+    padding: 12px 24px;
+    border-radius: 8px;
+    border: none;
+    background: linear-gradient(135deg, #3B82F6 0%, #1E40AF 100%);
+    color: white;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 14px;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    position: relative;
+    overflow: hidden;
+}
+
+.faucetButton:hover {
+    background: linear-gradient(135deg, #1E40AF 0%, #1E3A8A 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+}
+
+.faucetButton:active {
+    transform: translateY(0);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.faucetButton::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.5s;
+}
+
+.faucetButton:hover::before {
+    left: 100%;
+}
+
 .testButton {
     padding: 12px 24px;
     border-radius: 8px;
@@ -413,6 +454,7 @@
 
     .refreshButton,
     .mintButton,
+    .faucetButton,
     .switchButton,
     .testButton,
     .networkButton,

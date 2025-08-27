@@ -305,6 +305,10 @@ a.secondary {
   color: #555;
 }
 
+.walletSection1 {
+  text-align: center;
+}
+
 .walletSection {
   text-align: center;
   padding: 20px;
@@ -796,7 +800,7 @@ a.secondary {
   }
   
   .hero {
-    padding: 32px 0;
+    padding: 10px 0;
   }
   
   .heroIcon {

@@ -1,20 +1,39 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useWalletAccountStore } from "@/components/Wallet/Account/auth.hooks";
-import styles from './page.module.css';
-import { WalletButton } from '@/components/Wallet/Button/WalletButton';
 import { useKaiaWalletSdk } from '@/components/Wallet/Sdk/walletSdk.hooks';
+import { useKyeContracts } from '@/hooks/useKyeContracts';
+import { WalletButton } from '@/components/Wallet/Button/WalletButton';
 import { useRouter } from 'next/navigation';
+import { ethers } from 'ethers';
+import styles from './page.module.css';
 
 export default function Circles() {
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
-    const [isMounted, setIsMounted] = useState(false);
     const [showCreateForm, setShowCreateForm] = useState(false);
     const [showJoinForm, setShowJoinForm] = useState(false);
-    const { setAccount } = useWalletAccountStore();
-    const { getAccount, disconnectWallet } = useKaiaWalletSdk();
-    const { account } = useWalletAccountStore();
+    const [circleName, setCircleName] = useState('');
+    const [monthlyAmount, setMonthlyAmount] = useState('');
+    const [inviteCode, setInviteCode] = useState('');
+    const [creating, setCreating] = useState(false);
+    const [joining, setJoining] = useState(false);
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const [isMounted, setIsMounted] = useState(false);
+    const [myCircles, setMyCircles] = useState([]);
+    const [selectedCircle, setSelectedCircle] = useState(null);
+    const [showCircleDetails, setShowCircleDetails] = useState(false);
+    
+    // Balance detection states
+    const [showBalanceModal, setShowBalanceModal] = useState(false);
+    const [balanceLoading, setBalanceLoading] = useState(false);
+    const [kaiaBalance, setKaiaBalance] = useState('0');
+    const [usdtBalance, setUsdtBalance] = useState('0');
+    const [balanceChecked, setBalanceChecked] = useState(false);
+
+    // Wallet hooks - exactly like profile page
+    const { account, setAccount } = useWalletAccountStore();
+    const { getAccount, getChainId } = useKaiaWalletSdk();
+    const { createCircle, joinCircle, addresses, getContractAddressFromTx } = useKyeContracts();
     const router = useRouter();
 
     useEffect(() => {
@@ -35,26 +54,549 @@ export default function Circles() {
             } catch (error) {
                 console.log('Error checking existing account:', error);
                 // SDK might not be initialized yet, that's okay
-                // The wallet button will handle the connection when user clicks
             }
         };
         
         checkExistingAccount();
-    }, [disconnectWallet, getAccount, setAccount, isMounted]);
+    }, [getAccount, setAccount, isMounted]);
 
-    const handleCreateCircle = () => {
+    // Load circles from localStorage
+    useEffect(() => {
+        if (!isMounted) return;
+        
+        try {
+            const saved = localStorage.getItem('recentCircles');
+            if (saved) {
+                const circles = JSON.parse(saved);
+                console.log('Loaded circles from localStorage:', circles);
+                setMyCircles(circles);
+            }
+        } catch (error) {
+            console.error('Error loading circles from localStorage:', error);
+        }
+    }, [isMounted]);
+
+    // Check token balances when account is connected
+    useEffect(() => {
+        if (!account || !isMounted || balanceChecked) return;
+
+        const checkBalances = async () => {
+            setBalanceLoading(true);
+            console.log('=== CHECKING TOKEN BALANCES ===');
+            console.log('Account:', account);
+
+            try {
+                // Get provider using the SDK
+                const provider = new ethers.BrowserProvider(window.ethereum);
+                
+                // Check Kaia native token balance
+                const kaiaBalanceWei = await provider.getBalance(account);
+                const kaiaBalanceEth = ethers.formatEther(kaiaBalanceWei);
+                setKaiaBalance(kaiaBalanceEth);
+                console.log('Kaia Balance:', kaiaBalanceEth, 'KAIA');
+
+                // Check USDT balance (ERC20 token)
+                let usdtBalanceFormatted = '0';
+                if (addresses?.usdt) {
+                    const usdtContract = new ethers.Contract(
+                        addresses.usdt,
+                        [
+                            'function balanceOf(address owner) view returns (uint256)',
+                            'function decimals() view returns (uint8)'
+                        ],
+                        provider
+                    );
+
+                    const usdtBalanceWei = await usdtContract.balanceOf(account);
+                    const usdtDecimals = await usdtContract.decimals();
+                    usdtBalanceFormatted = ethers.formatUnits(usdtBalanceWei, usdtDecimals);
+                    console.log('USDT Balance:', usdtBalanceFormatted, 'USDT');
+                } else {
+                    console.log('USDT contract address not available');
+                }
+                
+                setUsdtBalance(usdtBalanceFormatted);
+
+                // Check if user has insufficient tokens (needs at least 0.01 KAIA and 1 USDT)
+                const hasKaia = parseFloat(kaiaBalanceEth) >= 0.01;
+                const hasUsdt = parseFloat(usdtBalanceFormatted) >= 1;
+
+                console.log('Has Kaia (>=0.01):', hasKaia, 'Balance:', kaiaBalanceEth);
+                console.log('Has USDT (>=1):', hasUsdt, 'Balance:', usdtBalanceFormatted);
+
+                if (!hasKaia || !hasUsdt) {
+                    console.log('❌ Insufficient token balance - showing modal');
+                    setShowBalanceModal(true);
+                } else {
+                    console.log('✅ Sufficient token balance');
+                }
+
+                setBalanceChecked(true);
+            } catch (error) {
+                console.error('❌ Error checking balances:', error);
+                // Don't show modal on error - might be network issue
+            } finally {
+                setBalanceLoading(false);
+            }
+        };
+
+        checkBalances();
+    }, [account, isMounted, addresses, balanceChecked]);
+
+    // Check for pending contracts and try to get their addresses
+    useEffect(() => {
+        if (!myCircles.length || !getContractAddressFromTx) return;
+
+        const updatePendingContracts = async () => {
+            for (let i = 0; i < myCircles.length; i++) {
+                const circle = myCircles[i];
+                
+                if (circle.address === 'pending' && circle.transactionHash) {
+                    console.log(`🔄 Checking pending contract for circle: ${circle.name}`);
+                    
+                    // Try to get the contract address
+                    const contractAddress = await updateCircleAddress(circle.transactionHash, i);
+                    
+                    if (contractAddress) {
+                        console.log(`✅ Successfully updated contract address for ${circle.name}: ${contractAddress}`);
+                        break; // Only update one at a time to avoid overwhelming
+                    } else {
+                        console.log(`⏳ Contract still pending for ${circle.name}`);
+                    }
+                }
+            }
+        };
+
+        // Run immediately and then every 30 seconds to check for updates
+        updatePendingContracts();
+        
+        const interval = setInterval(updatePendingContracts, 30000); // Check every 30 seconds
+        
+        return () => clearInterval(interval);
+    }, [myCircles, getContractAddressFromTx, updateCircleAddress]);
+
+    const handleCreateClick = () => {
         setShowCreateForm(true);
+        // Scroll to top for better UX
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
-    const handleJoinCircle = () => {
+    const handleJoinClick = () => {
         setShowJoinForm(true);
+        // Scroll to top for better UX
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     const handleBackToCircles = () => {
         setShowCreateForm(false);
         setShowJoinForm(false);
+        setShowCircleDetails(false);
+        setSelectedCircle(null);
+        setCircleName('');
+        setMonthlyAmount('');
+        setInviteCode('');
     };
 
+    const handleViewDetails = (circle) => {
+        setSelectedCircle(circle);
+        setShowCircleDetails(true);
+        // Scroll to top for better UX
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const handleManageCircle = (circle) => {
+        setSelectedCircle(circle);
+        setShowCircleDetails(true);
+        // Scroll to top for better UX
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const copyToClipboard = (text, label) => {
+        navigator.clipboard.writeText(text).then(() => {
+            alert(`${label} copied to clipboard!`);
+        }).catch(() => {
+            alert('Failed to copy to clipboard');
+        });
+    };
+
+    const handleRedirectToProfile = () => {
+        router.push('/profile');
+    };
+
+    const handleCloseBalanceModal = () => {
+        setShowBalanceModal(false);
+    };
+
+    // Function to update circle address when contract is deployed
+    const updateCircleAddress = async (transactionHash: string, circleIndex: number) => {
+        try {
+            console.log('🔍 Attempting to get contract address for tx:', transactionHash);
+            const contractAddress = await getContractAddressFromTx(transactionHash);
+            
+            if (contractAddress) {
+                console.log('✅ Found contract address:', contractAddress);
+                
+                // Update the circle in state
+                setMyCircles(prevCircles => {
+                    const updatedCircles = [...prevCircles];
+                    if (updatedCircles[circleIndex]) {
+                        updatedCircles[circleIndex] = {
+                            ...updatedCircles[circleIndex],
+                            address: contractAddress
+                        };
+                    }
+                    return updatedCircles;
+                });
+                
+                // Update localStorage
+                try {
+                    const saved = localStorage.getItem('recentCircles');
+                    if (saved) {
+                        const circles = JSON.parse(saved);
+                        if (circles[circleIndex]) {
+                            circles[circleIndex].address = contractAddress;
+                            localStorage.setItem('recentCircles', JSON.stringify(circles));
+                            console.log('✅ Updated localStorage with contract address');
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error updating localStorage:', error);
+                }
+                
+                return contractAddress;
+            }
+        } catch (error) {
+            console.error('Error getting contract address:', error);
+        }
+        
+        return null;
+    };
+
+    const handleRefreshAddress = async (circle, circleIndex) => {
+        if (!circle.transactionHash) return;
+        
+        console.log('🔄 Manual refresh for contract address:', circle.transactionHash);
+        const contractAddress = await updateCircleAddress(circle.transactionHash, circleIndex);
+        
+        if (contractAddress) {
+            alert(`✅ Contract address found!\n\n${contractAddress}\n\nYou can now share the invite link.`);
+        } else {
+            alert('⏳ Contract is still being deployed. Please wait a few more minutes and try again.');
+        }
+    };
+
+    const handleShareInviteLink = (circle) => {
+        if (!circle.address || circle.address === 'pending') {
+            // For now, share the transaction hash as a reference
+            const tempInviteMessage = `🤝 Join our Savings Circle: "${circle.name}"
+            
+💰 Monthly Amount: ${circle.depositAmount} USDT
+👥 Members: ${circle.memberCount}/5
+📊 Phase: ${circle.phase}
+
+⏳ Contract Status: Deploying...
+📋 Transaction Hash: ${circle.transactionHash}
+
+💡 How to join:
+1. Wait for the contract to be fully deployed
+2. The creator will share the final contract address
+3. Go to the Circles page and click "Join Circle"
+4. Enter the contract address when available
+
+Join us in this Korean-style savings group (Kye)! 🇰🇷
+
+⚠️ Note: Contract is still being deployed on Kaia blockchain. Please wait for confirmation.`;
+
+            // Try to use Web Share API first (mobile-friendly)
+            if (navigator.share) {
+                navigator.share({
+                    title: `Join Savings Circle: ${circle.name}`,
+                    text: tempInviteMessage,
+                    url: window.location.origin + '/circles'
+                }).catch(err => {
+                    console.log('Share failed:', err);
+                    copyToClipboard(tempInviteMessage, 'Invite Message (Contract Deploying)');
+                });
+            } else {
+                copyToClipboard(tempInviteMessage, 'Invite Message (Contract Deploying)');
+            }
+            return;
+        }
+
+        // Create invite message
+        const inviteMessage = `🤝 Join our Savings Circle: "${circle.name}"
+        
+💰 Monthly Amount: ${circle.depositAmount} USDT
+👥 Members: ${circle.memberCount}/5
+📊 Phase: ${circle.phase}
+
+📋 Invite Code (Contract Address):
+${circle.address}
+
+💡 How to join:
+1. Go to the Circles page
+2. Click "Join Circle"  
+3. Paste the invite code above
+4. Complete the joining process
+
+Join us in this Korean-style savings group (Kye)! 🇰🇷`;
+
+        // Try to use Web Share API first (mobile-friendly)
+        if (navigator.share) {
+            navigator.share({
+                title: `Join Savings Circle: ${circle.name}`,
+                text: inviteMessage,
+                url: window.location.origin + '/circles'
+            }).catch(err => {
+                console.log('Share failed:', err);
+                // Fallback to clipboard
+                copyToClipboard(inviteMessage, 'Invite Message');
+            });
+        } else {
+            // Fallback to clipboard copy
+            copyToClipboard(inviteMessage, 'Invite Message');
+        }
+    };
+
+    const handleViewMembers = (circle) => {
+        // For now, show basic member info
+        const memberInfo = `👥 Circle Members Information
+
+📋 Circle: ${circle.name}
+👤 Total Members: ${circle.memberCount}/5
+💰 Monthly Amount: ${circle.depositAmount} USDT
+
+🏗️ Members List:
+1. You (Creator) ✅
+${circle.memberCount > 1 ? 
+    Array.from({length: circle.memberCount - 1}, (_, i) => 
+        `${i + 2}. Member ${i + 2} (Joined)`
+    ).join('\n') : 
+    ''}
+${circle.memberCount < 5 ? 
+    Array.from({length: 5 - circle.memberCount}, (_, i) => 
+        `${circle.memberCount + i + 1}. [Open Slot] 🔓`
+    ).join('\n') : 
+    ''}
+
+📍 Contract Address: ${circle.address || 'Deploying...'}
+🗓️ Created: ${new Date(circle.createdAt).toLocaleDateString()}
+
+💡 To invite more members, share the invite code with them!`;
+
+        alert(memberInfo);
+    };
+
+    const handleCircleSettings = (circle) => {
+        const settingsInfo = `⚙️ Circle Settings
+
+📋 Circle Name: ${circle.name}
+💰 Monthly Amount: ${circle.depositAmount} USDT  
+📊 Current Phase: ${circle.phase}
+👤 Your Role: ${circle.isCreator ? 'Creator' : 'Member'}
+👥 Members: ${circle.memberCount}/5
+
+🔧 Available Actions:
+${circle.phase === 'Setup' ? 
+    '• Invite more members\n• Modify circle settings\n• Start the circle when ready' : 
+    '• View circle progress\n• Monitor member deposits\n• Track payout schedule'}
+
+📍 Contract Details:
+• Address: ${circle.address || 'Deploying...'}
+• Network: Kaia Kairos Testnet
+• Transaction: ${circle.transactionHash}
+
+⚠️ Note: Some settings may require blockchain transactions and gas fees.`;
+
+        alert(settingsInfo);
+    };
+
+    const handleCreateSubmit = useCallback(async () => {
+        if (!account) {
+            alert('Please connect your wallet first');
+            return;
+        }
+
+        if (!circleName.trim()) {
+            alert('Please enter a circle name');
+            return;
+        }
+        
+        if (!monthlyAmount || parseFloat(monthlyAmount) <= 0) {
+            alert('Please enter a valid monthly amount');
+            return;
+        }
+
+        if (!createCircle) {
+            alert('Contract integration not ready. Please refresh the page.');
+            return;
+        }
+
+        setCreating(true);
+        try {
+            console.log('=== CREATE CIRCLE START ===');
+            console.log('Circle name:', circleName);
+            console.log('Monthly amount:', monthlyAmount);
+            console.log('Account:', account);
+
+            // Network validation
+            const currentChainId = await getChainId();
+            if (currentChainId.toString() !== process.env.NEXT_PUBLIC_CHAIN_ID) {
+                throw new Error(`Wrong network! Current: ${currentChainId}, Expected: ${process.env.NEXT_PUBLIC_CHAIN_ID}`);
+            }
+
+            // Convert amount to proper format (USDT has 6 decimals)
+            const amountInUSDT = (parseFloat(monthlyAmount) * 1e6).toString();
+            console.log('Amount in USDT (wei):', amountInUSDT);
+
+            // Call the actual smart contract
+            const result = await createCircle(circleName, amountInUSDT);
+            console.log('✅ Circle created successfully:', result);
+
+            if (result.success) {
+                alert(`✅ Circle "${circleName}" created successfully!\n\nTransaction Hash: ${result.hash}\n\nShare this circle with your friends to let them join.`);
+                
+                // Store created circle for demo persistence  
+                try {
+                    if (typeof window !== 'undefined' && window.localStorage) {
+                        const createdCircle = {
+                            name: circleName,
+                            depositAmount: monthlyAmount,
+                            memberCount: 1,
+                            phase: 'Setup',
+                            isCreator: true,
+                            createdAt: Date.now(),
+                            address: result.circleAddress || 'pending',
+                            transactionHash: result.hash
+                        };
+                        
+                        const existing = JSON.parse(localStorage.getItem('recentCircles') || '[]');
+                        existing.push(createdCircle);
+                        localStorage.setItem('recentCircles', JSON.stringify(existing));
+                    }
+                } catch (e) {
+                    console.warn('Failed to save to localStorage:', e);
+                }
+                
+                // Update local circles list
+                const newCircle = {
+                    name: circleName,
+                    depositAmount: monthlyAmount,
+                    memberCount: 1,
+                    phase: 'Setup',
+                    isCreator: true,
+                    createdAt: Date.now(),
+                    address: result.circleAddress || 'pending',
+                    transactionHash: result.hash
+                };
+                setMyCircles(prev => [...prev, newCircle]);
+                
+                // Reset form
+                setCircleName('');
+                setMonthlyAmount('');
+                setShowCreateForm(false);
+            } else {
+                throw new Error(result.error || 'Failed to create circle');
+            }
+            
+        } catch (error) {
+            console.error('❌ Error creating circle:', error);
+            
+            let errorMessage = 'Failed to create circle';
+            if (error instanceof Error) {
+                if (error.message.includes('network') || error.message.includes('Network')) {
+                    errorMessage = `Network Error: ${error.message}\n\nTry switching to Kaia Kairos Testnet manually in your wallet.`;
+                } else if (error?.code === 4001) {
+                    errorMessage = 'Transaction rejected by user';
+                } else if (error?.code === -32603) {
+                    errorMessage = `Contract Error: ${error.message}\n\nCheck network and contract addresses.`;
+                } else {
+                    errorMessage = `Error: ${error.message}`;
+                }
+            }
+            
+            alert(errorMessage);
+        } finally {
+            setCreating(false);
+        }
+    }, [account, circleName, monthlyAmount, createCircle, getChainId]);
+
+    const handleJoinSubmit = useCallback(async () => {
+        if (!account) {
+            alert('Please connect your wallet first');
+            return;
+        }
+
+        if (!inviteCode.trim()) {
+            alert('Please enter an invite code');
+            return;
+        }
+
+        if (!joinCircle) {
+            alert('Contract integration not ready. Please refresh the page.');
+            return;
+        }
+
+        setJoining(true);
+        try {
+            console.log('=== JOIN CIRCLE START ===');
+            console.log('Invite code (circle address):', inviteCode);
+            console.log('Account:', account);
+
+            // Network validation
+            const currentChainId = await getChainId();
+            if (currentChainId.toString() !== process.env.NEXT_PUBLIC_CHAIN_ID) {
+                throw new Error(`Wrong network! Current: ${currentChainId}, Expected: ${process.env.NEXT_PUBLIC_CHAIN_ID}`);
+            }
+
+            // Call the actual smart contract
+            const result = await joinCircle(inviteCode);
+            console.log('✅ Joined circle successfully:', result);
+
+            if (result.success) {
+                alert(`✅ Successfully joined the circle!\n\nTransaction Hash: ${result.hash}\n\nWelcome to the savings group.`);
+                
+                // Reset form
+                setInviteCode('');
+                setShowJoinForm(false);
+            } else {
+                throw new Error(result.error || 'Failed to join circle');
+            }
+            
+        } catch (error) {
+            console.error('❌ Error joining circle:', error);
+            
+            let errorMessage = 'Failed to join circle';
+            if (error instanceof Error) {
+                if (error.message.includes('network') || error.message.includes('Network')) {
+                    errorMessage = `Network Error: ${error.message}\n\nTry switching to Kaia Kairos Testnet manually in your wallet.`;
+                } else if (error?.code === 4001) {
+                    errorMessage = 'Transaction rejected by user';
+                } else if (error?.code === -32603) {
+                    errorMessage = `Contract Error: ${error.message}\n\nCheck network and contract addresses.`;
+                } else {
+                    errorMessage = `Error: ${error.message}`;
+                }
+            }
+            
+            alert(errorMessage);
+        } finally {
+            setJoining(false);
+        }
+    }, [account, inviteCode, joinCircle, getChainId]);
+
+    if (!isMounted) {
+        return (
+            <div className={styles.root}>
+                <div className={styles.container}>
+                    <div className={styles.loginPrompt}>
+                        <h1>🤝 Savings Circles</h1>
+                        <p>Loading...</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     if (!account) {
         return (
@@ -77,79 +619,38 @@ export default function Circles() {
         <div className={styles.root}>
             <div className={styles.container}>
                 <div className={styles.header}>
-                    <h1>🏠 Korean Heritage Savings</h1>
+                    <h1>🤝 Savings Circles</h1>
                     <p className={styles.subtitle}>
-                        Experience authentic 계 (Kye) circles with modern blockchain security
+                        Create or join Korean savings circles (Kye)
                     </p>
-                    <div className={styles.culturalBadge}>
-                        <span className={styles.flag}>🇰🇷</span>
-                        <span>5,000+ years of trusted community savings</span>
-                    </div>
+                    <p style={{ fontSize: '0.875rem', color: '#666' }}>
+                        Connected: {account}
+                    </p>
                 </div>
 
-                <div className={styles.communityStats}>
-                    <h3>🌟 Community Impact</h3>
-                    <div className={styles.statsGrid}>
-                        <div className={styles.statCard}>
-                            <div className={styles.statIcon}>👥</div>
-                            <div className={styles.statValue}>2,847</div>
-                            <div className={styles.statLabel}>Korean families served</div>
-                        </div>
-                        <div className={styles.statCard}>
-                            <div className={styles.statIcon}>💰</div>
-                            <div className={styles.statValue}>$1.2M</div>
-                            <div className={styles.statLabel}>Community savings</div>
-                        </div>
-                        <div className={styles.statCard}>
-                            <div className={styles.statIcon}>🎯</div>
-                            <div className={styles.statValue}>98.5%</div>
-                            <div className={styles.statLabel}>Success rate</div>
-                        </div>
-                        <div className={styles.statCard}>
-                            <div className={styles.statIcon}>🤝</div>
-                            <div className={styles.statValue}>567</div>
-                            <div className={styles.statLabel}>Active circles</div>
-                        </div>
-                    </div>
-                    <div className={styles.competitiveMessage}>
-                        <div className={styles.messageIcon}>⚡</div>
-                        <div>
-                            <p><strong>Kaia Blockchain Advantage:</strong> Pay USDT fees (no gas tokens needed) • Native USDT (not bridged) • 250M+ LINE/Kakao users • Korean heritage + real tech</p>
-                        </div>
-                    </div>
-                </div>
-
-                {!showCreateForm && !showJoinForm && (
+                {!showCreateForm && !showJoinForm && !showCircleDetails && (
                     <div className={styles.actions}>
                         <div className={styles.actionCard}>
-                            <div className={styles.actionIcon}>🏛️</div>
-                            <h3>Start Family Circle</h3>
-                            <p>Create traditional Korean savings circle with trusted friends and family</p>
-                            <div className={styles.cardBenefit}>
-                                <span>✓ Deep social bonds</span>
-                                <span>✓ Cultural heritage</span>
-                            </div>
+                            <div className={styles.actionIcon}>➕</div>
+                            <h3>Create Circle</h3>
+                            <p>Start a new savings circle</p>
                             <button 
                                 className={styles.actionButton}
-                                onClick={handleCreateCircle}
+                                onClick={handleCreateClick}
                             >
-                                Create Heritage Circle
+                                Create
                             </button>
                         </div>
 
                         <div className={styles.actionCard}>
-                            <div className={styles.actionIcon}>🤝</div>
-                            <h3>Join Trusted Circle</h3>
-                            <p>Join authentic Korean savings circles shared by your community</p>
-                            <div className={styles.cardBenefit}>
-                                <span>✓ Peer accountability</span>
-                                <span>✓ Proven track record</span>
-                            </div>
+                            <div className={styles.actionIcon}>🔗</div>
+                            <h3>Join Circle</h3>
+                            <p>Join an existing circle</p>
                             <button 
                                 className={styles.actionButton}
-                                onClick={handleJoinCircle}
+                                onClick={handleJoinClick}
                             >
-                                Find My Community
+                                Join
                             </button>
                         </div>
                     </div>
@@ -167,44 +668,32 @@ export default function Circles() {
                             <h2>Create New Circle</h2>
                         </div>
                         <div className={styles.createForm}>
-                            <div className={styles.formSection}>
-                                <h3>Circle Details</h3>
-                                <div className={styles.inputGroup}>
-                                    <label>Circle Name</label>
-                                    <input 
-                                        type="text" 
-                                        placeholder="Enter circle name"
-                                        className={styles.input}
-                                    />
-                                </div>
-                                <div className={styles.inputGroup}>
-                                    <label>Monthly Deposit Amount (USDT)</label>
-                                    <input 
-                                        type="number" 
-                                        placeholder="100"
-                                        className={styles.input}
-                                    />
-                                </div>
-                                <div className={styles.inputGroup}>
-                                    <label>Payment Day</label>
-                                    <select className={styles.input}>
-                                        <option>1st of each month</option>
-                                        <option>15th of each month</option>
-                                        <option>Last day of month</option>
-                                    </select>
-                                </div>
+                            <div className={styles.inputGroup}>
+                                <label>Circle Name</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="Enter circle name"
+                                    className={styles.input}
+                                    value={circleName}
+                                    onChange={(e) => setCircleName(e.target.value)}
+                                />
                             </div>
-                            <div className={styles.formSection}>
-                                <h3>Circle Summary</h3>
-                                <div className={styles.summary}>
-                                    <p>• 5 members required</p>
-                                    <p>• 5 month duration</p>
-                                    <p>• Total pool: 500 USDT per round</p>
-                                    <p>• Each member receives 500 USDT once</p>
-                                </div>
+                            <div className={styles.inputGroup}>
+                                <label>Monthly Amount (USDT)</label>
+                                <input 
+                                    type="number" 
+                                    placeholder="100"
+                                    className={styles.input}
+                                    value={monthlyAmount}
+                                    onChange={(e) => setMonthlyAmount(e.target.value)}
+                                />
                             </div>
-                            <button className={styles.createButton}>
-                                Create Circle & Share Invite
+                            <button 
+                                className={styles.createButton}
+                                onClick={handleCreateSubmit}
+                                disabled={creating || !circleName.trim() || !monthlyAmount}
+                            >
+                                {creating ? 'Creating Circle...' : 'Create Circle'}
                             </button>
                         </div>
                     </div>
@@ -222,84 +711,300 @@ export default function Circles() {
                             <h2>Join Circle</h2>
                         </div>
                         <div className={styles.joinForm}>
-                            <div className={styles.formSection}>
-                                <h3>Enter Invite Code</h3>
-                                <div className={styles.inputGroup}>
-                                    <label>Circle Invite Code</label>
-                                    <input 
-                                        type="text" 
-                                        placeholder="Enter code from LINE message"
-                                        className={styles.input}
-                                    />
-                                </div>
-                                <p className={styles.hint}>
-                                    Get the invite code from your LINE group or friend
-                                </p>
+                            <div className={styles.inputGroup}>
+                                <label>Invite Code</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="Enter invite code"
+                                    className={styles.input}
+                                    value={inviteCode}
+                                    onChange={(e) => setInviteCode(e.target.value)}
+                                />
                             </div>
-                            <button className={styles.joinButton}>
-                                Join Circle
+                            <button 
+                                className={styles.joinButton}
+                                onClick={handleJoinSubmit}
+                                disabled={joining || !inviteCode.trim()}
+                            >
+                                {joining ? 'Joining Circle...' : 'Join Circle'}
                             </button>
                         </div>
                     </div>
                 )}
 
-                <div className={styles.myCircles}>
-                    <h2>Active Circles</h2>
-                    <div className={styles.circlesList}>
-                        <div className={styles.emptyState}>
-                            <div className={styles.emptyIcon}>🎯</div>
-                            <h3>No Active Circles</h3>
-                            <p>Create your first savings circle or join one shared by friends</p>
+                {showCircleDetails && selectedCircle && (
+                    <div className={styles.formContainer}>
+                        <div className={styles.formHeader}>
+                            <button 
+                                className={styles.backButton}
+                                onClick={handleBackToCircles}
+                            >
+                                ← Back to Circles
+                            </button>
+                            <h2>{selectedCircle.isCreator ? 'Manage Circle' : 'Circle Details'}: {selectedCircle.name}</h2>
                         </div>
+                        <div className={styles.detailsContainer}>
+                            <div className={styles.detailsGrid}>
+                                <div className={styles.detailsSection}>
+                                    <h3>Circle Information</h3>
+                                    <div className={styles.detailsInfo}>
+                                        <div className={styles.detailItem}>
+                                            <span className={styles.detailLabel}>Circle Name:</span>
+                                            <span className={styles.detailValue}>{selectedCircle.name}</span>
+                                        </div>
+                                        <div className={styles.detailItem}>
+                                            <span className={styles.detailLabel}>Monthly Amount:</span>
+                                            <span className={styles.detailValue}>{selectedCircle.depositAmount} USDT</span>
+                                        </div>
+                                        <div className={styles.detailItem}>
+                                            <span className={styles.detailLabel}>Members:</span>
+                                            <span className={styles.detailValue}>{selectedCircle.memberCount}/5</span>
+                                        </div>
+                                        <div className={styles.detailItem}>
+                                            <span className={styles.detailLabel}>Phase:</span>
+                                            <span className={`${styles.detailValue} ${styles.circlePhase}`}>{selectedCircle.phase}</span>
+                                        </div>
+                                        <div className={styles.detailItem}>
+                                            <span className={styles.detailLabel}>Your Role:</span>
+                                            <span className={styles.detailValue}>{selectedCircle.isCreator ? 'Creator' : 'Member'}</span>
+                                        </div>
+                                        <div className={styles.detailItem}>
+                                            <span className={styles.detailLabel}>Created:</span>
+                                            <span className={styles.detailValue}>{new Date(selectedCircle.createdAt).toLocaleString()}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className={styles.detailsSection}>
+                                    <h3>Blockchain Details</h3>
+                                    <div className={styles.detailsInfo}>
+                                        {selectedCircle.address && selectedCircle.address !== 'pending' && (
+                                            <div className={styles.detailItem}>
+                                                <span className={styles.detailLabel}>Contract Address:</span>
+                                                <div className={styles.addressContainer}>
+                                                    <span className={styles.address}>{selectedCircle.address}</span>
+                                                    <button 
+                                                        className={styles.copyButton}
+                                                        onClick={() => copyToClipboard(selectedCircle.address, 'Contract Address')}
+                                                    >
+                                                        📋
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {selectedCircle.transactionHash && (
+                                            <div className={styles.detailItem}>
+                                                <span className={styles.detailLabel}>Transaction Hash:</span>
+                                                <div className={styles.addressContainer}>
+                                                    <span className={styles.address}>{selectedCircle.transactionHash}</span>
+                                                    <button 
+                                                        className={styles.copyButton}
+                                                        onClick={() => copyToClipboard(selectedCircle.transactionHash, 'Transaction Hash')}
+                                                    >
+                                                        📋
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                        <div className={styles.detailItem}>
+                                            <span className={styles.detailLabel}>Network:</span>
+                                            <span className={styles.detailValue}>Kaia Kairos Testnet</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {selectedCircle.isCreator && selectedCircle.phase === 'Setup' && (
+                                <div className={styles.managementSection}>
+                                    <h3>Circle Management</h3>
+                                    <div className={styles.managementActions}>
+                                        <button 
+                                            className={styles.inviteButton}
+                                            onClick={() => handleShareInviteLink(selectedCircle)}
+                                        >
+                                            📤 Share Invite Link
+                                        </button>
+                                        <button 
+                                            className={styles.viewButton}
+                                            onClick={() => handleViewMembers(selectedCircle)}
+                                        >
+                                            👥 View Members
+                                        </button>
+                                        <button 
+                                            className={styles.manageButton}
+                                            onClick={() => handleCircleSettings(selectedCircle)}
+                                        >
+                                            ⚙️ Circle Settings
+                                        </button>
+                                        {selectedCircle.address === 'pending' && (
+                                            <button 
+                                                className={styles.refreshButton}
+                                                onClick={() => handleRefreshAddress(selectedCircle, myCircles.findIndex(c => c.transactionHash === selectedCircle.transactionHash))}
+                                            >
+                                                🔄 Refresh Address
+                                            </button>
+                                        )}
+                                    </div>
+                                    
+                                    <div className={styles.inviteSection}>
+                                        <h4>Invite Code</h4>
+                                        <p>Share this address with friends to let them join your circle:</p>
+                                        <div className={styles.inviteCodeContainer}>
+                                            <input 
+                                                type="text" 
+                                                value={selectedCircle.address || 'Contract deploying...'}
+                                                readOnly 
+                                                className={styles.inviteCodeInput}
+                                            />
+                                            <button 
+                                                className={styles.copyButton}
+                                                onClick={() => copyToClipboard(selectedCircle.address, 'Invite Code')}
+                                                disabled={!selectedCircle.address || selectedCircle.address === 'pending'}
+                                            >
+                                                📋 Copy
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {!selectedCircle.isCreator && (
+                                <div className={styles.memberSection}>
+                                    <h3>Member Actions</h3>
+                                    <div className={styles.memberActions}>
+                                        <button className={styles.viewButton}>
+                                            💰 Make Deposit
+                                        </button>
+                                        <button className={styles.inviteButton}>
+                                            📊 View Progress
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                <div className={styles.myCircles}>
+                    <h2>My Circles</h2>
+                    <div className={styles.circlesList}>
+                        {myCircles.length === 0 ? (
+                            <div className={styles.emptyState}>
+                                <div className={styles.emptyIcon}>🎯</div>
+                                <h3>No Active Circles</h3>
+                                <p>Create or join your first circle</p>
+                            </div>
+                        ) : (
+                            myCircles.map((circle, index) => (
+                                <div key={index} className={styles.circleCard}>
+                                    <div className={styles.circleHeader}>
+                                        <h3>{circle.name}</h3>
+                                        <span className={styles.circlePhase}>{circle.phase}</span>
+                                    </div>
+                                    <div className={styles.circleDetails}>
+                                        <p><strong>Monthly Amount:</strong> {circle.depositAmount} USDT</p>
+                                        <p><strong>Members:</strong> {circle.memberCount}/5</p>
+                                        <p><strong>Role:</strong> {circle.isCreator ? 'Creator' : 'Member'}</p>
+                                        {circle.address && circle.address !== 'pending' && (
+                                            <p><strong>Address:</strong> <span className={styles.address}>{circle.address}</span></p>
+                                        )}
+                                        {circle.transactionHash && (
+                                            <p><strong>TX Hash:</strong> <span className={styles.address}>{circle.transactionHash}</span></p>
+                                        )}
+                                        <p><strong>Created:</strong> {new Date(circle.createdAt).toLocaleDateString()}</p>
+                                    </div>
+                                    <div className={styles.circleActions}>
+                                        <button 
+                                            className={styles.viewButton}
+                                            onClick={() => handleViewDetails(circle)}
+                                        >
+                                            View Details
+                                        </button>
+                                        {circle.isCreator && circle.phase === 'Setup' && (
+                                            <button 
+                                                className={styles.manageButton}
+                                                onClick={() => handleManageCircle(circle)}
+                                            >
+                                                Manage
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            ))
+                        )}
                     </div>
                 </div>
 
-                <div className={styles.info}>
-                    <h3>🏛️ Korean Heritage Meets Modern Security</h3>
-                    <div className={styles.heritageSection}>
-                        <div className={styles.heritageCard}>
-                            <h4>🇰🇷 Traditional Korean 계 (Kye)</h4>
-                            <p>For centuries, Korean families have used rotating savings circles to achieve financial goals together. Now enhanced with blockchain transparency.</p>
-                        </div>
-                        <div className={styles.versus}>VS</div>
-                        <div className={styles.heritageCard}>
-                            <h4>❌ Generic Commerce Apps</h4>
-                            <p>Merchant-dependent platforms with theoretical "x402" features, bridged tokens, gas fees, and complex rebate schemes that prioritize transactions over community.</p>
-                        </div>
-                    </div>
-                    
-                    <div className={styles.steps}>
-                        <div className={styles.step}>
-                            <span className={styles.stepNumber}>1</span>
-                            <div>
-                                <h4>Form Trusted Community</h4>
-                                <p>Build lasting relationships with 5 trusted friends or family members</p>
+                {/* Balance Detection Modal */}
+                {showBalanceModal && (
+                    <div className={styles.modalOverlay}>
+                        <div className={styles.modalContent}>
+                            <div className={styles.modalHeader}>
+                                <h3>⚠️ Insufficient Token Balance</h3>
+                                <button 
+                                    className={styles.modalCloseButton}
+                                    onClick={handleCloseBalanceModal}
+                                >
+                                    ×
+                                </button>
+                            </div>
+                            <div className={styles.modalBody}>
+                                <p className={styles.modalDescription}>
+                                    You need both Kaia (native token) and USDT tokens to create or join savings circles. 
+                                    Please get some tokens from the Profile page first.
+                                </p>
+
+                                <div className={styles.tokenRequirements}>
+                                    <div className={`${styles.tokenItem} ${parseFloat(kaiaBalance) >= 0.01 ? styles.sufficient : styles.insufficient}`}>
+                                        <div className={styles.tokenIcon}>💎</div>
+                                        <div className={styles.tokenInfo}>
+                                            <div className={styles.tokenName}>Kaia (KAIA)</div>
+                                            <div className={styles.tokenPurpose}>For transaction fees</div>
+                                            <div className={styles.tokenBalance}>
+                                                Balance: {parseFloat(kaiaBalance).toFixed(4)} KAIA
+                                            </div>
+                                        </div>
+                                        <div className={styles.statusIcon}>
+                                            {parseFloat(kaiaBalance) >= 0.01 ? '✅' : '❌'}
+                                        </div>
+                                    </div>
+
+                                    <div className={`${styles.tokenItem} ${parseFloat(usdtBalance) >= 1 ? styles.sufficient : styles.insufficient}`}>
+                                        <div className={styles.tokenIcon}>💵</div>
+                                        <div className={styles.tokenInfo}>
+                                            <div className={styles.tokenName}>Mock USDT</div>
+                                            <div className={styles.tokenPurpose}>For circle deposits</div>
+                                            <div className={styles.tokenBalance}>
+                                                Balance: {parseFloat(usdtBalance).toFixed(2)} USDT
+                                            </div>
+                                        </div>
+                                        <div className={styles.statusIcon}>
+                                            {parseFloat(usdtBalance) >= 1 ? '✅' : '❌'}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <p className={styles.modalInstruction}>
+                                    📝 <strong>Requirements:</strong> At least 0.01 KAIA + 1 USDT needed to participate in circles
+                                </p>
+                            </div>
+                            <div className={styles.modalFooter}>
+                                <button 
+                                    className={styles.modalCancelButton}
+                                    onClick={handleCloseBalanceModal}
+                                >
+                                    Continue Anyway
+                                </button>
+                                <button 
+                                    className={styles.modalActionButton}
+                                    onClick={handleRedirectToProfile}
+                                >
+                                    🏦 Go to Profile Page
+                                </button>
                             </div>
                         </div>
-                        <div className={styles.step}>
-                            <span className={styles.stepNumber}>2</span>
-                            <div>
-                                <h4>Predictable Contributions</h4>
-                                <p>Simple, equal USDT deposits - no complex merchant calculations</p>
-                            </div>
-                        </div>
-                        <div className={styles.step}>
-                            <span className={styles.stepNumber}>3</span>
-                            <div>
-                                <h4>Fair Turn-Based Payouts</h4>
-                                <p>Everyone gets their turn - transparent, predictable, community-focused</p>
-                            </div>
-                        </div>
                     </div>
-                    
-                    <div className={styles.testimonial}>
-                        <div className={styles.testimonialIcon}>💬</div>
-                        <blockquote>
-                            <p>"My grandmother taught me about Kye circles. Now I can do the same with my LINE friends using blockchain security. It's perfect!"</p>
-                            <cite>- Sarah K., Korean-American in Los Angeles</cite>
-                        </blockquote>
-                    </div>
-                </div>
+                )}
             </div>
         </div>
     );

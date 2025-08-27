@@ -19,7 +19,8 @@ export const CreateCircle = ({ onCircleCreated, onBack }: CreateCircleProps) => 
   const [formData, setFormData] = useState({
     depositAmount: '100',
     penaltyBps: 500, // 5%
-    roundDurationDays: 30
+    roundDurationDays: 30,
+    maxMembers: 5
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -96,6 +97,10 @@ export const CreateCircle = ({ onCircleCreated, onBack }: CreateCircleProps) => 
       newErrors.roundDurationDays = 'Round duration must be between 7 and 90 days';
     }
 
+    if (formData.maxMembers < 2 || formData.maxMembers > 5) {
+      newErrors.maxMembers = 'Member count must be between 2 and 5';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -118,7 +123,8 @@ export const CreateCircle = ({ onCircleCreated, onBack }: CreateCircleProps) => 
         liffContext.groupId,
         formData.depositAmount,
         formData.penaltyBps,
-        formData.roundDurationDays
+        formData.roundDurationDays,
+        formData.maxMembers
       );
 
       if (result.success) {
@@ -141,7 +147,7 @@ export const CreateCircle = ({ onCircleCreated, onBack }: CreateCircleProps) => 
 
     try {
       const shareUrl = `${window.location.origin}/?action=join&circle=${circleAddress}`;
-      const message = `🎯 New Kye Circle Created!\n\n💰 Deposit: ${formData.depositAmount} USDT\n⏰ Round: ${formData.roundDurationDays} days\n👥 5 members max\n\nJoin now: ${shareUrl}`;
+      const message = `🎯 New Kye Circle Created!\n\n💰 Deposit: ${formData.depositAmount} USDT\n⏰ Round: ${formData.roundDurationDays} days\n👥 ${formData.maxMembers} members max\n\nJoin now: ${shareUrl}`;
 
       if (liff.isApiAvailable('shareTargetPicker')) {
         await liff.shareTargetPicker([{
@@ -205,7 +211,7 @@ export const CreateCircle = ({ onCircleCreated, onBack }: CreateCircleProps) => 
           <h1>Create Kye Circle</h1>
         </div>
         <p className={styles.subtitle}>
-          Set up a 5-member savings circle for your LINE group
+          Set up a {formData.maxMembers}-member savings circle for your LINE group
         </p>
       </div>
 
@@ -227,6 +233,27 @@ export const CreateCircle = ({ onCircleCreated, onBack }: CreateCircleProps) => 
           )}
           <small className={styles.helpText}>
             Amount each member deposits every round
+          </small>
+        </div>
+
+        <div className={styles.formGroup}>
+          <label htmlFor="maxMembers">Circle Size (Members)</label>
+          <select
+            id="maxMembers"
+            value={formData.maxMembers}
+            onChange={(e) => setFormData(prev => ({ ...prev, maxMembers: parseInt(e.target.value) }))}
+            className={errors.maxMembers ? styles.inputError : ''}
+          >
+            <option value={2}>2 Members (Intimate)</option>
+            <option value={3}>3 Members (Small)</option>
+            <option value={4}>4 Members (Medium)</option>
+            <option value={5}>5 Members (Traditional)</option>
+          </select>
+          {errors.maxMembers && (
+            <span className={styles.errorText}>{errors.maxMembers}</span>
+          )}
+          <small className={styles.helpText}>
+            Choose circle size based on your group preferences
           </small>
         </div>
 
@@ -279,7 +306,7 @@ export const CreateCircle = ({ onCircleCreated, onBack }: CreateCircleProps) => 
             <div className={styles.summaryItem}>
               <span className={styles.summaryLabel}>Total Pool:</span>
               <span className={styles.summaryValue}>
-                {(parseFloat(formData.depositAmount) * 5).toFixed(2)} USDT
+                {(parseFloat(formData.depositAmount) * formData.maxMembers).toFixed(2)} USDT
               </span>
             </div>
             <div className={styles.summaryItem}>
@@ -289,7 +316,7 @@ export const CreateCircle = ({ onCircleCreated, onBack }: CreateCircleProps) => 
             <div className={styles.summaryItem}>
               <span className={styles.summaryLabel}>Duration:</span>
               <span className={styles.summaryValue}>
-                {5 * formData.roundDurationDays} days total
+                {formData.maxMembers * formData.roundDurationDays} days total
               </span>
             </div>
             <div className={styles.summaryItem}>
@@ -325,9 +352,9 @@ export const CreateCircle = ({ onCircleCreated, onBack }: CreateCircleProps) => 
         <div className={styles.info}>
           <p>ℹ️ <strong>How Kye Works:</strong></p>
           <ul>
-            <li>5 members take turns receiving the full pool</li>
+            <li>{formData.maxMembers} members take turns receiving the full pool</li>
             <li>Each round, everyone deposits the agreed amount</li>
-            <li>One member receives all deposits (5x their contribution)</li>
+            <li>One member receives all deposits ({formData.maxMembers}x their contribution)</li>
             <li>Late deposits incur penalties to maintain fairness</li>
             <li>Yield from SavingsPocket is distributed to all members</li>
           </ul>

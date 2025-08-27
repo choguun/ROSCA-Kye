@@ -13,6 +13,7 @@ contract KyeFactory {
         uint256 depositAmount;
         uint256 penaltyBps;
         uint256 roundDuration;
+        uint8 maxMembers;
     }
 
     struct CircleMetadata {
@@ -69,6 +70,7 @@ contract KyeFactory {
         require(params.depositAmount > 0, "Deposit amount must be positive");
         require(params.penaltyBps <= 5000, "Penalty too high"); // Max 50%
         require(params.roundDuration >= 1 hours, "Round duration too short");
+        require(params.maxMembers >= 2 && params.maxMembers <= 5, "Invalid member count");
 
         // Use defaults if not specified
         address usdtToken = params.usdtToken != address(0) ? params.usdtToken : defaultUsdtToken;
@@ -84,7 +86,8 @@ contract KyeFactory {
                 params.lineGroupIdHash,
                 params.depositAmount,
                 params.penaltyBps,
-                params.roundDuration
+                params.roundDuration,
+                uint256(params.maxMembers)
             )
         );
 
@@ -143,7 +146,8 @@ contract KyeFactory {
                 params.lineGroupIdHash,
                 params.depositAmount,
                 params.penaltyBps,
-                params.roundDuration
+                params.roundDuration,
+                uint256(params.maxMembers)
             )
         ));
 

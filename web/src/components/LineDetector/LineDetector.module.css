@@ -1,0 +1,300 @@
+.modalOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000; /* Higher than other modals */
+    backdrop-filter: blur(8px);
+    padding: 1rem;
+}
+
+.modalContent {
+    background: white;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 420px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(50px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.modalHeader {
+    padding: 1.5rem;
+    text-align: center;
+    border-bottom: 1px solid #eee;
+    position: relative;
+}
+
+.lineIcon {
+    margin: 0 auto 1rem;
+    width: 48px;
+    height: 48px;
+}
+
+.modalHeader h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #333;
+}
+
+.closeButton {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: #999;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+}
+
+.closeButton:hover {
+    background: #f5f5f5;
+    color: #333;
+}
+
+.modalBody {
+    padding: 1.5rem;
+    text-align: center;
+}
+
+.instructionIcon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+
+.modalBody h3 {
+    margin: 0 0 0.5rem;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #333;
+}
+
+.description {
+    margin: 0 0 1.5rem;
+    color: #666;
+    line-height: 1.5;
+    font-size: 0.875rem;
+}
+
+.steps {
+    margin: 1.5rem 0;
+    text-align: left;
+}
+
+.step {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    font-size: 0.875rem;
+    color: #555;
+}
+
+.stepNumber {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: #06C755;
+    color: white;
+    border-radius: 50%;
+    font-weight: 600;
+    font-size: 0.75rem;
+    margin-right: 0.75rem;
+    flex-shrink: 0;
+}
+
+.urlCopy {
+    display: flex;
+    gap: 0.5rem;
+    margin: 1.5rem 0;
+    align-items: center;
+}
+
+.urlInput {
+    flex: 1;
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    color: #666;
+    background: #f8f9fa;
+    min-width: 0; /* Allow shrinking */
+}
+
+.urlInput:focus {
+    outline: none;
+    border-color: #06C755;
+    box-shadow: 0 0 0 3px rgba(6, 199, 85, 0.1);
+}
+
+.copyButton {
+    padding: 0.75rem 1rem;
+    background: #06C755;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.copyButton:hover {
+    background: #05B94A;
+    transform: translateY(-1px);
+}
+
+.copyButton:active {
+    transform: translateY(0);
+}
+
+.modalFooter {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid #eee;
+}
+
+.continueButton {
+    width: 100%;
+    padding: 0.875rem;
+    background: #f8f9fa;
+    color: #666;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.continueButton:hover {
+    background: #e9ecef;
+    color: #333;
+}
+
+.continueButton:active {
+    transform: translateY(1px);
+}
+
+/* Mobile responsiveness */
+@media (max-width: 480px) {
+    .modalOverlay {
+        padding: 0.5rem;
+    }
+    
+    .modalContent {
+        border-radius: 12px;
+    }
+    
+    .modalHeader,
+    .modalBody,
+    .modalFooter {
+        padding: 1rem;
+    }
+    
+    .urlCopy {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    
+    .urlInput {
+        width: 100%;
+    }
+    
+    .steps {
+        margin: 1rem 0;
+    }
+    
+    .step {
+        margin-bottom: 0.5rem;
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .modalContent {
+        background: #1a1a1a;
+        color: #fff;
+    }
+    
+    .modalHeader {
+        border-bottom-color: #333;
+    }
+    
+    .modalHeader h2 {
+        color: #fff;
+    }
+    
+    .closeButton {
+        color: #999;
+    }
+    
+    .closeButton:hover {
+        background: #333;
+        color: #fff;
+    }
+    
+    .modalBody h3 {
+        color: #fff;
+    }
+    
+    .description {
+        color: #ccc;
+    }
+    
+    .step {
+        color: #ccc;
+    }
+    
+    .urlInput {
+        background: #333;
+        border-color: #555;
+        color: #fff;
+    }
+    
+    .urlInput:focus {
+        border-color: #06C755;
+        box-shadow: 0 0 0 3px rgba(6, 199, 85, 0.2);
+    }
+    
+    .modalFooter {
+        border-top-color: #333;
+    }
+    
+    .continueButton {
+        background: #333;
+        color: #ccc;
+        border-color: #555;
+    }
+    
+    .continueButton:hover {
+        background: #444;
+        color: #fff;
+    }
+}

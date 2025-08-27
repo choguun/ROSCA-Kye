@@ -39,7 +39,7 @@ contract KyeGroup {
     }
 
     // Constants
-    uint256 public constant MAX_MEMBERS = 5;
+    uint256 public immutable maxMembers;
     uint256 public constant MAX_GRACE_PERIODS = 1;
     uint256 public constant GRACE_DURATION = 24 hours;
     uint256 public constant BASIS_POINTS = 10000;
@@ -104,13 +104,15 @@ contract KyeGroup {
         bytes32 _lineGroupIdHash,
         uint256 _depositAmount,
         uint256 _penaltyBps,
-        uint256 _roundDuration
+        uint256 _roundDuration,
+        uint256 _maxMembers
     ) {
         require(_usdtToken != address(0), "Invalid USDT address");
         require(_creator != address(0), "Invalid creator address");
         require(_depositAmount > 0, "Deposit amount must be positive");
         require(_penaltyBps <= 5000, "Penalty too high"); // Max 50%
         require(_roundDuration > 0, "Round duration must be positive");
+        require(_maxMembers >= 2 && _maxMembers <= 5, "Invalid member count");
 
         usdtToken = IERC20(_usdtToken);
         yieldAdapter = IYieldAdapter(_yieldAdapter);
@@ -119,12 +121,13 @@ contract KyeGroup {
         depositAmount = _depositAmount;
         penaltyBps = _penaltyBps;
         roundDuration = _roundDuration;
+        maxMembers = _maxMembers;
         phase = Phase.Setup;
         currentRound = 0;
     }
 
     function join(bytes32 _lineUserIdHash) external inPhase(Phase.Setup) {
-        require(members.length < MAX_MEMBERS, "Circle is full");
+        require(members.length < maxMembers, "Circle is full");
         require(!isMember[msg.sender], "Already a member");
         require(_lineUserIdHash != bytes32(0), "Invalid LINE user ID hash");
 
@@ -145,13 +148,13 @@ contract KyeGroup {
 
         emit MemberJoined(msg.sender, _lineUserIdHash);
 
-        if (members.length == MAX_MEMBERS) {
+        if (members.length == maxMembers) {
             _startCircle();
         }
     }
 
     function _startCircle() internal {
-        require(members.length == MAX_MEMBERS, "Not enough members");
+        require(members.length == maxMembers, "Not enough members");
         
         phase = Phase.Commitment;
         emit PhaseChanged(Phase.Setup, Phase.Commitment);
@@ -161,7 +164,7 @@ contract KyeGroup {
     }
 
     function _startNewRound() internal {
-        require(currentRound < MAX_MEMBERS, "All rounds completed");
+        require(currentRound < maxMembers, "All rounds completed");
         
         address beneficiary = members[currentRound];
         uint256 deadline = block.timestamp + roundDuration;
@@ -172,7 +175,7 @@ contract KyeGroup {
             totalDeposited: 0,
             yieldAccrued: 0,
             isComplete: false,
-            requiredDeposits: MAX_MEMBERS - 1 // Beneficiary doesn't deposit
+            requiredDeposits: maxMembers - 1 // Beneficiary doesn't deposit
         });
 
         emit RoundStarted(currentRound, beneficiary, deadline);
@@ -184,7 +187,7 @@ contract KyeGroup {
     }
 
     function deposit() external payable onlyMember inPhase(Phase.Active) nonReentrant {
-        require(currentRound < MAX_MEMBERS, "No active round");
+        require(currentRound < maxMembers, "No active round");
         require(rounds[currentRound].beneficiary != msg.sender, "Beneficiary cannot deposit");
         require(deposits[currentRound][msg.sender].amount == 0, "Already deposited this round");
         
@@ -259,7 +262,7 @@ contract KyeGroup {
         // Advance to next round or complete circle
         currentRound = currentRound.add(1);
         
-        if (currentRound >= MAX_MEMBERS) {
+        if (currentRound >= maxMembers) {
             _completeCircle();
         } else {
             _startNewRound();
@@ -279,7 +282,7 @@ contract KyeGroup {
 
     function _distributeRemainingFunds() internal {
         if (clubPool > 0) {
-            uint256 perMember = clubPool.div(MAX_MEMBERS);
+            uint256 perMember = clubPool.div(maxMembers);
             for (uint256 i = 0; i < members.length; i++) {
                 require(usdtToken.transfer(members[i], perMember), "Club pool distribution failed");
             }
@@ -395,7 +398,7 @@ contract KyeGroup {
     }
 
     function getCurrentRoundDeadline() external view returns (uint256) {
-        if (currentRound >= MAX_MEMBERS) return 0;
+        if (currentRound >= maxMembers) return 0;
         return rounds[currentRound].deadline;
     }
 }
