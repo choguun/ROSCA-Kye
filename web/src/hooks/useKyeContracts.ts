@@ -3,7 +3,7 @@
 import React, { useCallback } from 'react';
 import { useKaiaWalletSdk, useKaiaWalletSdkStore } from '@/components/Wallet/Sdk/walletSdk.hooks';
 import { getContractAddresses, DEFAULT_CHAIN_ID, logAddressConfiguration } from '@/utils/contracts/addresses';
-import { KYE_FACTORY_ABI, KYE_GROUP_ABI, MOCK_USDT_ABI, Phase } from '@/utils/contracts/abis';
+import { KYE_FACTORY_ABI, KYE_GROUP_ABI, MOCK_USDT_ABI, SAVINGS_POCKET_ABI, Phase } from '@/utils/contracts/abis';
 import { ethers } from 'ethers';
 import * as Sentry from '@sentry/nextjs';
 import { 
@@ -162,15 +162,15 @@ export const useKyeContracts = () => {
       const factoryInterface = new ethers.Interface(KYE_FACTORY_ABI);
       const deployCircleData = factoryInterface.encodeFunctionData('deployCircle', [
         salt,
-        [
-          params.usdtToken,
-          params.yieldAdapter,
-          params.lineGroupIdHash,
-          params.depositAmount,
-          params.penaltyBps,
-          params.roundDuration,
-          maxMembers
-        ]
+        {
+          usdtToken: params.usdtToken,
+          yieldAdapter: params.yieldAdapter,
+          lineGroupIdHash: params.lineGroupIdHash,
+          depositAmount: params.depositAmount,
+          penaltyBps: params.penaltyBps,
+          roundDuration: params.roundDuration,
+          maxMembers: maxMembers // This will be properly encoded as uint8
+        }
       ]);
 
       console.log('✅ Encoded deployCircle call:', deployCircleData);
@@ -217,17 +217,18 @@ export const useKyeContracts = () => {
       console.log('🔧 Calculating CREATE2 address...');
       
       // Get the init code hash (keccak256 of bytecode + constructor args)
+      // Factory constructor call: new KyeGroup(usdtToken, yieldAdapter, msg.sender, lineGroupIdHash, depositAmount, penaltyBps, roundDuration, maxMembers)
       const constructorArgs = ethers.AbiCoder.defaultAbiCoder().encode(
-        ['address', 'address', 'address', 'bytes32', 'uint256', 'uint256', 'uint256', 'uint256'],
+        ['address', 'address', 'address', 'bytes32', 'uint256', 'uint256', 'uint256', 'uint8'],
         [
           params.usdtToken,
           params.yieldAdapter,
-          account, // creator
+          account, // creator (added by factory as msg.sender)
           params.lineGroupIdHash,
           params.depositAmount,
           params.penaltyBps,
           params.roundDuration,
-          maxMembers
+          maxMembers // uint8 as per ABI
         ]
       );
       
@@ -606,8 +607,16 @@ export const useKyeContracts = () => {
     try {
       console.log('🔍 Getting contract address from transaction:', txHash);
       
-      // Get provider
-      const provider = new ethers.BrowserProvider(window.ethereum);
+      // Check if SDK is available
+      if (!sdk) {
+        console.error('❌ No SDK available');
+        return null;
+      }
+      
+      // Get provider from SDK
+      const walletProvider = sdk.getWalletProvider();
+      console.log('🔗 Using Kaia Wallet SDK provider for tx receipt');
+      const provider = new ethers.BrowserProvider(walletProvider);
       
       // Wait for transaction receipt
       const receipt = await provider.getTransactionReceipt(txHash);
@@ -624,19 +633,22 @@ export const useKyeContracts = () => {
       if (receipt.logs && receipt.logs.length > 0) {
         console.log('📋 Analyzing transaction logs for contract address...');
         
-        // Look for CircleDeployed event or similar
+        // Look for CircleCreated event from factory
         const factoryInterface = new ethers.Interface(KYE_FACTORY_ABI);
         
         for (const log of receipt.logs) {
           try {
             const parsedLog = factoryInterface.parseLog(log);
-            if (parsedLog && parsedLog.name === 'CircleDeployed') {
-              const contractAddress = parsedLog.args.circle || parsedLog.args.circleAddress;
-              console.log('✅ Found contract address from CircleDeployed event:', contractAddress);
+            console.log('🔍 Parsed log:', parsedLog?.name, parsedLog?.args);
+            
+            if (parsedLog && parsedLog.name === 'CircleCreated') {
+              const contractAddress = parsedLog.args.circleAddress;
+              console.log('✅ Found contract address from CircleCreated event:', contractAddress);
               return contractAddress;
             }
           } catch (parseError) {
             // Log might not be from our factory, continue
+            console.log('🔍 Could not parse log (likely from different contract):', parseError.message);
             continue;
           }
         }
@@ -885,6 +897,169 @@ export const useKyeContracts = () => {
     }
   }, [getAccount, sendTransaction, addresses, detectActualNetwork, getErc20TokenBalance]);
 
+  // SavingsPocket yield functions
+  const getSavingsPocketAPY = useCallback(async (): Promise<string> => {
+    try {
+      console.log('🔍 Getting SavingsPocket APY...');
+      
+      if (!sdk) {
+        console.log('❌ No SDK available');
+        return '5.00'; // Default fallback APY
+      }
+      
+      const walletProvider = sdk.getWalletProvider();
+      const provider = new ethers.BrowserProvider(walletProvider);
+      
+      const savingsPocketContract = new ethers.Contract(
+        addresses.SavingsPocket,
+        SAVINGS_POCKET_ABI,
+        provider
+      );
+      
+      const apyBps = await savingsPocketContract.expectedAPY();
+      const apyPercent = (parseInt(apyBps.toString()) / 100).toFixed(2);
+      
+      console.log('✅ SavingsPocket APY:', apyPercent + '%');
+      return apyPercent;
+      
+    } catch (error) {
+      console.error('❌ Error getting SavingsPocket APY:', error);
+      return '5.00'; // Default fallback
+    }
+  }, [sdk, addresses]);
+
+  const getSavingsPocketStats = useCallback(async (): Promise<{
+    totalValue: string;
+    totalDeposited: string;
+    sponsorFunds: string;
+    pendingYield: string;
+    apy: string;
+    isHealthy: boolean;
+    healthReason: string;
+  }> => {
+    try {
+      console.log('🔍 Getting SavingsPocket stats...');
+      
+      if (!sdk) {
+        console.log('❌ No SDK available');
+        return {
+          totalValue: '0',
+          totalDeposited: '0', 
+          sponsorFunds: '0',
+          pendingYield: '0',
+          apy: '5.00',
+          isHealthy: true,
+          healthReason: 'SDK not available'
+        };
+      }
+      
+      const walletProvider = sdk.getWalletProvider();
+      const provider = new ethers.BrowserProvider(walletProvider);
+      
+      const savingsPocketContract = new ethers.Contract(
+        addresses.SavingsPocket,
+        SAVINGS_POCKET_ABI,
+        provider
+      );
+      
+      const [
+        totalValue,
+        totalDeposited,
+        sponsorFunds,
+        pendingYield,
+        apyBps,
+        healthResult
+      ] = await Promise.all([
+        savingsPocketContract.totalValue(),
+        savingsPocketContract.totalDeposited(),
+        savingsPocketContract.sponsorFunds(),
+        savingsPocketContract.getPendingYield(),
+        savingsPocketContract.expectedAPY(),
+        savingsPocketContract.healthCheck()
+      ]);
+      
+      const stats = {
+        totalValue: ethers.formatUnits(totalValue, 6), // USDT has 6 decimals
+        totalDeposited: ethers.formatUnits(totalDeposited, 6),
+        sponsorFunds: ethers.formatUnits(sponsorFunds, 6),
+        pendingYield: ethers.formatUnits(pendingYield, 6),
+        apy: (parseInt(apyBps.toString()) / 100).toFixed(2),
+        isHealthy: healthResult[0],
+        healthReason: healthResult[1]
+      };
+      
+      console.log('✅ SavingsPocket stats:', stats);
+      return stats;
+      
+    } catch (error) {
+      console.error('❌ Error getting SavingsPocket stats:', error);
+      return {
+        totalValue: '0',
+        totalDeposited: '0',
+        sponsorFunds: '0', 
+        pendingYield: '0',
+        apy: '5.00',
+        isHealthy: false,
+        healthReason: 'Error fetching stats'
+      };
+    }
+  }, [sdk, addresses]);
+
+  const getUserYieldInfo = useCallback(async (userAddress: string): Promise<{
+    userShares: string;
+    userValue: string;
+    estimatedYield: string;
+  }> => {
+    try {
+      console.log('🔍 Getting user yield info for:', userAddress);
+      
+      if (!sdk || !userAddress) {
+        console.log('❌ No SDK or user address available');
+        return {
+          userShares: '0',
+          userValue: '0',
+          estimatedYield: '0'
+        };
+      }
+      
+      const walletProvider = sdk.getWalletProvider();
+      const provider = new ethers.BrowserProvider(walletProvider);
+      
+      const savingsPocketContract = new ethers.Contract(
+        addresses.SavingsPocket,
+        SAVINGS_POCKET_ABI,
+        provider
+      );
+      
+      const [userShares, userValue] = await Promise.all([
+        savingsPocketContract.getUserShares(userAddress),
+        savingsPocketContract.getUserValue(userAddress)
+      ]);
+      
+      // Calculate estimated yield (current value - shares represents yield earned)
+      const sharesValue = ethers.formatUnits(userShares, 6);
+      const currentValue = ethers.formatUnits(userValue, 6);
+      const estimatedYield = Math.max(0, parseFloat(currentValue) - parseFloat(sharesValue)).toFixed(6);
+      
+      const result = {
+        userShares: sharesValue,
+        userValue: currentValue,
+        estimatedYield: estimatedYield
+      };
+      
+      console.log('✅ User yield info:', result);
+      return result;
+      
+    } catch (error) {
+      console.error('❌ Error getting user yield info:', error);
+      return {
+        userShares: '0',
+        userValue: '0',
+        estimatedYield: '0'
+      };
+    }
+  }, [sdk, addresses]);
+
   return {
     // Factory functions
     createCircle,
@@ -901,6 +1076,11 @@ export const useKyeContracts = () => {
     // Token functions
     getUsdtBalance,
     mintUsdt,
+    
+    // SavingsPocket functions
+    getSavingsPocketAPY,
+    getSavingsPocketStats,
+    getUserYieldInfo,
     
     // Utility
     addresses,

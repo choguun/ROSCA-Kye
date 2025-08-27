@@ -31,11 +31,12 @@ export default function Circles() {
     const [kaiaBalance, setKaiaBalance] = useState('0');
     const [usdtBalance, setUsdtBalance] = useState('0');
     const [balanceChecked, setBalanceChecked] = useState(false);
+    const [currentAPY, setCurrentAPY] = useState('5.00');
 
     // Wallet hooks - exactly like profile page
     const { account, setAccount } = useWalletAccountStore();
     const { getAccount, getChainId, getBalance, getErc20TokenBalance } = useKaiaWalletSdk();
-    const { createCircle, joinCircle, addresses, getContractAddressFromTx } = useKyeContracts();
+    const { createCircle, joinCircle, addresses, getContractAddressFromTx, getSavingsPocketAPY } = useKyeContracts();
     const router = useRouter();
 
     useEffect(() => {
@@ -150,6 +151,25 @@ export default function Circles() {
 
         checkBalances();
     }, [account, isMounted, addresses, balanceChecked]);
+
+    // Fetch current APY from SavingsPocket
+    useEffect(() => {
+        if (!isMounted || !addresses?.SavingsPocket) return;
+
+        const fetchAPY = async () => {
+            try {
+                console.log('🔍 Fetching SavingsPocket APY...');
+                const apy = await getSavingsPocketAPY();
+                setCurrentAPY(apy);
+                console.log('✅ Current APY fetched:', apy + '%');
+            } catch (error) {
+                console.error('❌ Error fetching APY:', error);
+                // Keep default 5.00% APY
+            }
+        };
+
+        fetchAPY();
+    }, [isMounted, addresses, getSavingsPocketAPY]);
 
     // Check for pending contracts and try to get their addresses
     useEffect(() => {
@@ -730,6 +750,10 @@ ${circle.phase === 'Setup' ?
                             <div className={styles.actionIcon}>➕</div>
                             <h3>Create Circle</h3>
                             <p>Start a new savings circle</p>
+                            <div className={styles.circleYieldBadge} style={{justifyContent: 'center', margin: '12px 0'}}>
+                                <span>💰</span>
+                                <span>Earn {currentAPY}% APY on deposits</span>
+                            </div>
                             <button 
                                 className={styles.actionButton}
                                 onClick={handleCreateClick}
@@ -762,6 +786,13 @@ ${circle.phase === 'Setup' ?
                                 ← Back to Circles
                             </button>
                             <h2>Create New Circle</h2>
+                            <div className={styles.yieldHighlight}>
+                                <div className={styles.yieldBadge}>
+                                    <span className={styles.yieldIcon}>💰</span>
+                                    <span className={styles.yieldText}>Earn {currentAPY}% APY on deposits</span>
+                                    <span className={styles.yieldSubtext}>Powered by SavingsPocket</span>
+                                </div>
+                            </div>
                         </div>
                         <div className={styles.createForm}>
                             <div className={styles.inputGroup}>
@@ -796,6 +827,14 @@ ${circle.phase === 'Setup' ?
                                     value={monthlyAmount}
                                     onChange={(e) => setMonthlyAmount(e.target.value)}
                                 />
+                                {monthlyAmount && parseFloat(monthlyAmount) > 0 && (
+                                    <div className={styles.yieldPreview}>
+                                        <span className={styles.yieldIcon}>📈</span>
+                                        <span className={styles.yieldCalculation}>
+                                            Potential yearly yield: ~{(parseFloat(monthlyAmount) * maxMembers * parseFloat(currentAPY) / 100).toFixed(2)} USDT
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                             <div className={styles.inputGroup}>
                                 <label>Late Penalty (%)</label>
@@ -1075,7 +1114,7 @@ ${circle.phase === 'Setup' ?
                                     </div>
                                     <div className={styles.circleDetails}>
                                         <p><strong>Monthly Amount:</strong> {circle.depositAmount} USDT</p>
-                                        <p><strong>Members:</strong> {circle.memberCount}/5</p>
+                                        <p><strong>Members:</strong> {circle.memberCount}/{circle.maxMembers || 5}</p>
                                         <p><strong>Role:</strong> {circle.isCreator ? 'Creator' : 'Member'}</p>
                                         {circle.address && circle.address !== 'pending' && (
                                             <p><strong>Address:</strong> <span className={styles.address}>{circle.address}</span></p>
@@ -1084,6 +1123,20 @@ ${circle.phase === 'Setup' ?
                                             <p><strong>TX Hash:</strong> <span className={styles.address}>{circle.transactionHash}</span></p>
                                         )}
                                         <p><strong>Created:</strong> {new Date(circle.createdAt).toLocaleDateString()}</p>
+                                        
+                                        <div className={styles.circleYieldBadge}>
+                                            <span>💰</span>
+                                            <span>Earning {currentAPY}% APY</span>
+                                        </div>
+                                        
+                                        {circle.depositAmount && (
+                                            <div className={styles.yieldEarnings}>
+                                                <span>📈</span>
+                                                <span>
+                                                    Est. yearly yield: ~{(parseFloat(circle.depositAmount) * (circle.maxMembers || 5) * parseFloat(currentAPY) / 100).toFixed(2)} USDT
+                                                </span>
+                                            </div>
+                                        )}
                                     </div>
                                     <div className={styles.circleActions}>
                                         <button 

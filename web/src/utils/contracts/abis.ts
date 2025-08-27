@@ -290,6 +290,101 @@ export const MOCK_USDT_ABI = [
   }
 ] as const;
 
+export const SAVINGS_POCKET_ABI = [
+  // View functions
+  {
+    type: "function",
+    name: "expectedAPY",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "totalValue",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getUserShares",
+    inputs: [{ name: "user", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getUserValue",
+    inputs: [{ name: "user", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getPendingYield",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getYieldRate",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "healthCheck",
+    inputs: [],
+    outputs: [
+      { name: "isHealthy", type: "bool" },
+      { name: "reason", type: "string" }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "totalDeposited",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "sponsorFunds",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  // Core functions
+  {
+    type: "function",
+    name: "deposit",
+    inputs: [{ name: "amount", type: "uint256" }],
+    outputs: [{ name: "shares", type: "uint256" }],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "withdraw",
+    inputs: [
+      { name: "shares", type: "uint256" },
+      { name: "recipient", type: "address" }
+    ],
+    outputs: [{ name: "amount", type: "uint256" }],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "manualYieldAccrual",
+    inputs: [],
+    outputs: [],
+    stateMutability: "nonpayable"
+  }
+] as const;
+
 // Enums matching contract definitions
 export enum Phase {
   Setup = 0,

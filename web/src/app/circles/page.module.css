@@ -1568,3 +1568,137 @@
   background: #e5e7eb;
   transform: rotate(45deg);
 }
+
+.debugButton, .clearButton, .testButton, .forceRefreshButton {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s;
+  margin-left: 8px;
+}
+
+.debugButton:hover {
+  background: #fef3c7;
+}
+
+.clearButton:hover {
+  background: #fee2e2;
+}
+
+.testButton:hover {
+  background: #ddd6fe;
+}
+
+.forceRefreshButton:hover {
+  background: #bfdbfe;
+}
+
+/* Yield Highlight Styles */
+.yieldHighlight {
+  margin: 16px 0;
+  text-align: center;
+}
+
+.yieldBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #00B900 0%, #009a00 100%);
+  color: white;
+  padding: 12px 20px;
+  border-radius: 50px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0, 185, 0, 0.3);
+  animation: pulse 2s infinite;
+}
+
+.yieldIcon {
+  font-size: 16px;
+}
+
+.yieldText {
+  font-weight: 700;
+}
+
+.yieldSubtext {
+  font-size: 11px;
+  opacity: 0.8;
+  margin-left: 4px;
+}
+
+.yieldPreview {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  color: #166534;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.yieldCalculation {
+  font-weight: 600;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+/* Yield info for circle cards */
+.circleYieldBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.yieldEarnings {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #f59e0b;
+  color: #92400e;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin: 8px 0;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.resolveButton {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-size: 14px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.resolveButton:hover {
+  background: #059669;
+  transform: translateY(-1px);
+}

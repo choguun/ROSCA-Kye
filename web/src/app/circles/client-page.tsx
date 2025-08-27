@@ -2,12 +2,14 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { useWalletAccountStore } from "@/components/Wallet/Account/auth.hooks";
-import { useKaiaWalletSdk } from '@/components/Wallet/Sdk/walletSdk.hooks';
+import { useKaiaWalletSdk, useKaiaWalletSdkStore } from '@/components/Wallet/Sdk/walletSdk.hooks';
 import { useKyeContracts } from '@/hooks/useKyeContracts';
 import { WalletButton } from '@/components/Wallet/Button/WalletButton';
 import styles from './page.module.css';
 
 export default function CirclesClient() {
+    console.log('🔴 CirclesClient component function called');
+    
     const [showCreateForm, setShowCreateForm] = useState(false);
     const [showJoinForm, setShowJoinForm] = useState(false);
     const [circleName, setCircleName] = useState('');
@@ -17,75 +19,216 @@ export default function CirclesClient() {
     const [joining, setJoining] = useState(false);
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [isMounted, setIsMounted] = useState(false);
-    const [myCircles, setMyCircles] = useState([]);
+    const [myCircles, setMyCircles] = useState(() => {
+        console.log('🔴 myCircles initial state function called');
+        return [];
+    });
+    
+    // Add debugging for state changes
+    useEffect(() => {
+        console.log('🔍 myCircles state changed:', myCircles);
+        console.log('🔍 myCircles length:', myCircles.length);
+    }, [myCircles]);
 
     // Wallet hooks - exactly like profile page
     const { account, setAccount } = useWalletAccountStore();
     const { getAccount, getChainId } = useKaiaWalletSdk();
-    const { createCircle, joinCircle, addresses } = useKyeContracts();
+    const { sdk } = useKaiaWalletSdkStore();
+    const { createCircle, joinCircle, addresses, getContractAddressFromTx } = useKyeContracts();
 
     useEffect(() => {
+        console.log('🚀 Component mounting...');
         setIsMounted(true);
+        console.log('🚀 Component mounted, isMounted set to true');
     }, []);
 
     useEffect(() => {
-        if (!isMounted) return;
+        console.log('🔍 checkExistingAccount useEffect triggered, isMounted:', isMounted);
+        
+        if (!isMounted) {
+            console.log('🔍 Not mounted yet, returning early');
+            return;
+        }
         
         const checkExistingAccount = async () => {
             try {
+                console.log('🔍 Getting account...');
                 const account = await getAccount();
+                console.log('🔍 Got account:', account);
+                
                 if(account) {
-                    console.log('Found existing account:', account);
+                    console.log('✅ Found existing account:', account);
                     setIsLoggedIn(true);
                     setAccount(account);
-                    loadUserCircles();
+                    console.log('🔍 About to load user circles...');
+                    await loadUserCircles();
+                    console.log('🔍 Finished loading user circles');
                 }
             } catch (error) {
-                console.log('Error checking existing account:', error);
+                console.log('❌ Error checking existing account:', error);
                 // SDK might not be initialized yet, that's okay
             }
         };
         
         checkExistingAccount();
-    }, [getAccount, setAccount, isMounted, loadUserCircles]);
+    }, [getAccount, setAccount, isMounted]); // Removed loadUserCircles from dependencies
 
-    // Fetch circle data from contract
+    // Fetch circle data from contract using Kaia Wallet SDK
     const fetchCircleData = useCallback(async (circleAddress) => {
         try {
-            // This would call the smart contract to get real data
-            // For now, we'll simulate with better demo data
-            console.log('Fetching circle data for:', circleAddress);
+            console.log('🔍 Fetching REAL circle data for:', circleAddress);
             
-            // Simulate some realistic data
-            const mockData = {
-                depositAmount: Math.floor(Math.random() * 500 + 50).toString(), // 50-550 USDT
-                memberCount: `${Math.floor(Math.random() * 4 + 2)}/5`, // 2-5 members
-                phase: ['Setup', 'Active', 'Active', 'Active'][Math.floor(Math.random() * 4)] // Mostly Active
+            // Check if we have a valid address
+            if (!circleAddress || circleAddress === 'pending') {
+                console.log('❌ Cannot fetch circle data: invalid address');
+                return {
+                    depositAmount: 'Pending',
+                    memberCount: '?/5',
+                    phase: 'Deploying'
+                };
+            }
+            
+            // Get the wallet provider from SDK
+            const account = await getAccount();
+            if (!account) {
+                console.log('❌ No wallet account found');
+                return {
+                    depositAmount: 'No Wallet',
+                    memberCount: '?/5',
+                    phase: 'No Wallet'
+                };
+            }
+            
+            const { ethers } = await import('ethers');
+            const { KYE_GROUP_ABI } = await import('@/utils/contracts/abis');
+            
+            // Check if SDK is available
+            if (!sdk) {
+                console.log('❌ SDK not available');
+                return {
+                    depositAmount: 'SDK Error',
+                    memberCount: '?/5',
+                    phase: 'SDK Error'
+                };
+            }
+            
+            // Use the Kaia Wallet SDK provider
+            const walletProvider = sdk.getWalletProvider();
+            console.log('🔗 Using Kaia Wallet SDK provider:', walletProvider);
+            
+            const provider = new ethers.BrowserProvider(walletProvider);
+            const circleContract = new ethers.Contract(circleAddress, KYE_GROUP_ABI, provider);
+            
+            console.log('📞 Calling smart contract functions for address:', circleAddress);
+            
+            // Call multiple contract methods in parallel
+            const [depositAmount, members, phase, maxMembers] = await Promise.all([
+                circleContract.depositAmount().catch((e) => {
+                    console.log('❌ Error getting depositAmount:', e.message);
+                    return 0n;
+                }),
+                circleContract.getMembers().catch((e) => {
+                    console.log('❌ Error getting members:', e.message);
+                    return [];
+                }),
+                circleContract.phase().catch((e) => {
+                    console.log('❌ Error getting phase:', e.message);
+                    return 0;
+                }),
+                circleContract.maxMembers().catch((e) => {
+                    console.log('❌ Error getting maxMembers:', e.message);
+                    return 5;
+                })
+            ]);
+            
+            // Convert values
+            const depositAmountUsdt = (Number(depositAmount) / 1e6).toString(); // Convert from 6 decimals
+            const memberCount = `${members.length}/${Number(maxMembers)}`;
+            const phaseNames = ['Setup', 'Active', 'Resolved', 'Cancelled'];
+            const phaseName = phaseNames[Number(phase)] || 'Unknown';
+            
+            console.log('✅ Got REAL circle data:', {
+                depositAmount: depositAmountUsdt,
+                memberCount,
+                phase: phaseName,
+                members: members.length,
+                rawDepositAmount: depositAmount.toString(),
+                membersArray: members
+            });
+            
+            return {
+                depositAmount: depositAmountUsdt,
+                memberCount,
+                phase: phaseName
             };
             
-            return mockData;
         } catch (error) {
-            console.error('Error fetching circle data:', error);
+            console.error('❌ Error fetching circle data:', error);
+            console.error('❌ Error details:', error.message, error.code);
+            
+            // Return fallback data on error
             return {
-                depositAmount: '100',
-                memberCount: '2/5',
-                phase: 'Active'
+                depositAmount: 'Error',
+                memberCount: '?/5', 
+                phase: 'Error'
             };
         }
-    }, []);
+    }, [getAccount, sdk]);
+
+    // Resolve pending contract addresses from transaction hashes
+    const resolvePendingContracts = useCallback(async () => {
+        console.log('🔍 Checking for pending contracts to resolve...');
+        
+        const updatedCircles = await Promise.all(
+            myCircles.map(async (circle) => {
+                if (circle.address === 'pending' && circle.transactionHash) {
+                    console.log('🔍 Attempting to get contract address for tx:', circle.transactionHash);
+                    const contractAddress = await getContractAddressFromTx(circle.transactionHash);
+                    
+                    if (contractAddress) {
+                        console.log('✅ Resolved contract address:', contractAddress);
+                        return {
+                            ...circle,
+                            address: contractAddress,
+                            needsDataFetch: true // Update with real data
+                        };
+                    } else {
+                        console.log('⏳ Contract still pending for', circle.name);
+                        return circle;
+                    }
+                }
+                return circle;
+            })
+        );
+        
+        // Update state and localStorage if any changes were made
+        const hasChanges = JSON.stringify(updatedCircles) !== JSON.stringify(myCircles);
+        if (hasChanges) {
+            console.log('📝 Updating circles with resolved addresses');
+            setMyCircles(updatedCircles);
+            
+            if (typeof window !== 'undefined' && window.localStorage) {
+                localStorage.setItem('recentCircles', JSON.stringify(updatedCircles));
+            }
+        }
+        
+        return hasChanges;
+    }, [myCircles, getContractAddressFromTx]);
 
     // Load user's circles from localStorage
     const loadUserCircles = useCallback(async () => {
         try {
+            console.log('🔄 loadUserCircles called');
             if (typeof window !== 'undefined' && window.localStorage) {
                 const recentCircles = JSON.parse(localStorage.getItem('recentCircles') || '[]');
-                console.log('Loaded circles from localStorage:', recentCircles);
+                console.log('📦 Raw circles from localStorage:', recentCircles.length, 'circles');
+                console.log('📦 Circle details:', recentCircles);
                 
                 // Update circles that need data fetch
                 const updatedCircles = await Promise.all(
                     recentCircles.map(async (circle) => {
                         if (circle.needsDataFetch && circle.address && circle.address !== 'pending') {
-                            console.log('Fetching data for circle:', circle.address);
+                            console.log('🔍 Fetching data for circle:', circle.address);
                             const contractData = await fetchCircleData(circle.address);
                             return {
                                 ...circle,
@@ -97,15 +240,21 @@ export default function CirclesClient() {
                     })
                 );
                 
-                // Save updated data back to localStorage
+                // Save updated data back to localStorage if changed
                 if (JSON.stringify(updatedCircles) !== JSON.stringify(recentCircles)) {
+                    console.log('💾 Saving updated circle data to localStorage');
                     localStorage.setItem('recentCircles', JSON.stringify(updatedCircles));
                 }
                 
+                console.log('✅ Setting myCircles state with', updatedCircles.length, 'circles');
+                console.log('✅ Updated circles:', updatedCircles);
                 setMyCircles(updatedCircles);
+            } else {
+                console.log('❌ localStorage not available');
+                setMyCircles([]);
             }
         } catch (error) {
-            console.error('Error loading circles:', error);
+            console.error('❌ Error loading circles:', error);
             setMyCircles([]);
         }
     }, [fetchCircleData]);
@@ -177,18 +326,37 @@ export default function CirclesClient() {
                         const createdCircle = {
                             name: circleName,
                             depositAmount: monthlyAmount,
-                            memberCount: "1/5", // Properly formatted member count
+                            memberCount: "1/5", // Initial count, will be updated by fetchCircleData
                             phase: 'Setup',
                             isCreator: true,
+                            isJoined: false, // Explicitly set to false for creators
                             createdAt: Date.now(),
                             address: result.circleAddress || 'pending',
-                            transactionHash: result.hash
+                            transactionHash: result.hash,
+                            needsDataFetch: true // Flag to fetch real data
                         };
                         
                         const existing = JSON.parse(localStorage.getItem('recentCircles') || '[]');
                         existing.push(createdCircle);
                         localStorage.setItem('recentCircles', JSON.stringify(existing));
-                        loadUserCircles(); // Refresh the display
+                        console.log('✅ Saved created circle to localStorage, refreshing display...');
+                        
+                        console.log('🎯 BEFORE setMyCircles - Current myCircles:', myCircles);
+                        console.log('🎯 Circle to add:', createdCircle);
+                        
+                        // Immediate state update for responsiveness
+                        setMyCircles(prev => {
+                            console.log('🎯 Inside setMyCircles - prev:', prev);
+                            const updated = [...prev, createdCircle];
+                            console.log('🎯 Inside setMyCircles - updated:', updated);
+                            return updated;
+                        });
+                        
+                        console.log('🎯 AFTER setMyCircles called');
+                        
+                        // Then async refresh for complete data
+                        await loadUserCircles(); // Refresh the display
+                        console.log('🎯 AFTER loadUserCircles called');
                     }
                 } catch (e) {
                     console.warn('Failed to save to localStorage:', e);
@@ -281,7 +449,26 @@ export default function CirclesClient() {
                         if (!alreadyExists) {
                             existing.push(joinedCircle);
                             localStorage.setItem('recentCircles', JSON.stringify(existing));
-                            loadUserCircles(); // Refresh the display
+                            console.log('✅ Saved joined circle to localStorage, refreshing display...');
+                            
+                            console.log('🎯 JOIN - BEFORE setMyCircles - Current myCircles:', myCircles);
+                            console.log('🎯 JOIN - Circle to add:', joinedCircle);
+                            
+                            // Immediate state update for responsiveness
+                            setMyCircles(prev => {
+                                console.log('🎯 JOIN - Inside setMyCircles - prev:', prev);
+                                const updated = [...prev, joinedCircle];
+                                console.log('🎯 JOIN - Inside setMyCircles - updated:', updated);
+                                return updated;
+                            });
+                            
+                            console.log('🎯 JOIN - AFTER setMyCircles called');
+                            
+                            // Then async refresh for complete data
+                            await loadUserCircles();
+                            console.log('🎯 JOIN - AFTER loadUserCircles called'); 
+                        } else {
+                            console.log('⚠️  Circle already exists, not adding duplicate');
                         }
                     }
                 } catch (e) {
@@ -474,21 +661,158 @@ export default function CirclesClient() {
                         >
                             🔄
                         </button>
+                        <button 
+                            className={styles.debugButton}
+                            onClick={() => {
+                                console.log('🔧 Current myCircles state:', myCircles);
+                                console.log('🔧 localStorage data:', JSON.parse(localStorage.getItem('recentCircles') || '[]'));
+                            }}
+                            title="Debug circles data"
+                        >
+                            🐛
+                        </button>
+                        <button 
+                            className={styles.clearButton}
+                            onClick={() => {
+                                localStorage.removeItem('recentCircles');
+                                setMyCircles([]);
+                                console.log('🧹 Cleared all circles');
+                            }}
+                            title="Clear all circles"
+                        >
+                            🧹
+                        </button>
+                        <button 
+                            className={styles.testButton}
+                            onClick={() => {
+                                console.log('🧪 Adding test circle...');
+                                const testCircle = {
+                                    name: 'Test Circle',
+                                    depositAmount: '100',
+                                    memberCount: '1/5',
+                                    phase: 'Test',
+                                    isCreator: true,
+                                    isJoined: false,
+                                    address: '0x123test',
+                                    transactionHash: '0xtest'
+                                };
+                                
+                                console.log('🧪 Before setMyCircles - current:', myCircles);
+                                setMyCircles(prev => {
+                                    console.log('🧪 Inside setMyCircles - prev:', prev);
+                                    const updated = [...prev, testCircle];
+                                    console.log('🧪 Inside setMyCircles - updated:', updated);
+                                    return updated;
+                                });
+                                console.log('🧪 After setMyCircles called');
+                            }}
+                            title="Add test circle"
+                        >
+                            🧪
+                        </button>
+                        <button 
+                            className={styles.forceRefreshButton}
+                            onClick={async () => {
+                                console.log('🔄 Force refreshing all circle data from blockchain...');
+                                
+                                // First resolve any pending contracts
+                                const resolvedAny = await resolvePendingContracts();
+                                if (resolvedAny) {
+                                    console.log('✅ Resolved some pending contracts');
+                                }
+                                
+                                // Then fetch real data for all non-pending circles
+                                const updatedCircles = await Promise.all(
+                                    myCircles.map(async (circle) => {
+                                        if (circle.address && circle.address !== 'pending') {
+                                            console.log(`🔄 Fetching data for circle: ${circle.address}`);
+                                            const realData = await fetchCircleData(circle.address);
+                                            return {
+                                                ...circle,
+                                                ...realData,
+                                                needsDataFetch: false
+                                            };
+                                        }
+                                        return circle;
+                                    })
+                                );
+                                
+                                setMyCircles(updatedCircles);
+                                
+                                // Also update localStorage
+                                if (typeof window !== 'undefined' && window.localStorage) {
+                                    localStorage.setItem('recentCircles', JSON.stringify(updatedCircles));
+                                }
+                                
+                                console.log('🔄 Force refresh complete!');
+                            }}
+                            title="Force refresh from blockchain"
+                        >
+                            ⚡
+                        </button>
+                        <button 
+                            className={styles.resolveButton}
+                            onClick={async () => {
+                                console.log('🔍 Manually resolving pending contracts...');
+                                const resolvedAny = await resolvePendingContracts();
+                                
+                                if (resolvedAny) {
+                                    alert('✅ Resolved some pending contracts! They now have real addresses.');
+                                    // Auto-refresh to get real data
+                                    await loadUserCircles();
+                                } else {
+                                    alert('ℹ️ No pending contracts found or they are still being mined.');
+                                }
+                            }}
+                            title="Resolve pending contract addresses"
+                        >
+                            🔗
+                        </button>
                     </div>
                     <div className={styles.circlesList}>
+                        {(() => {
+                            console.log('🔍 RENDER - myCircles.length:', myCircles.length);
+                            console.log('🔍 RENDER - myCircles:', myCircles);
+                            return null;
+                        })()}
+                        
                         {myCircles.length === 0 ? (
                             <div className={styles.emptyState}>
                                 <div className={styles.emptyIcon}>🎯</div>
                                 <h3>No Active Circles</h3>
                                 <p>Create or join your first circle</p>
+                                {(() => {
+                                    console.log('🔍 RENDER - Showing empty state');
+                                    return null;
+                                })()}
                             </div>
                         ) : (
-                            myCircles.map((circle, index) => (
+                            myCircles.map((circle, index) => {
+                                console.log(`🔍 Rendering circle ${index}:`, {
+                                    name: circle.name,
+                                    isCreator: circle.isCreator,
+                                    isJoined: circle.isJoined,
+                                    address: circle.address
+                                });
+                                
+                                // Determine role with explicit logic
+                                let roleDisplay = '📝 Unknown';
+                                if (circle.isCreator === true) {
+                                    roleDisplay = '👑 Creator';
+                                } else if (circle.isJoined === true) {
+                                    roleDisplay = '👥 Member'; 
+                                } else if (circle.isCreator === false && circle.isJoined === false) {
+                                    roleDisplay = '📝 Created'; // Fallback for created circles
+                                }
+                                
+                                console.log(`🔍 Role for circle ${index}: ${roleDisplay} (isCreator: ${circle.isCreator}, isJoined: ${circle.isJoined})`);
+                                
+                                return (
                                 <div key={index} className={styles.circleCard}>
                                     <div className={styles.circleHeader}>
                                         <h3>{circle.name}</h3>
                                         <div className={styles.circleRole}>
-                                            {circle.isCreator ? '👑 Creator' : circle.isJoined ? '👥 Member' : '📝 Created'}
+                                            {roleDisplay}
                                         </div>
                                     </div>
                                     <div className={styles.circleDetails}>
@@ -537,7 +861,8 @@ export default function CirclesClient() {
                                         )}
                                     </div>
                                 </div>
-                            ))
+                                );
+                            })
                         )}
                     </div>
                 </div>
