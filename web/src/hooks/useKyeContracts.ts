@@ -2,7 +2,7 @@
 
 import React, { useCallback } from 'react';
 import { useKaiaWalletSdk, useKaiaWalletSdkStore } from '@/components/Wallet/Sdk/walletSdk.hooks';
-import { getContractAddresses, DEFAULT_CHAIN_ID } from '@/utils/contracts/addresses';
+import { getContractAddresses, DEFAULT_CHAIN_ID, logAddressConfiguration } from '@/utils/contracts/addresses';
 import { KYE_FACTORY_ABI, KYE_GROUP_ABI, MOCK_USDT_ABI, Phase } from '@/utils/contracts/abis';
 import { ethers } from 'ethers';
 import * as Sentry from '@sentry/nextjs';
@@ -22,6 +22,7 @@ import type {
   JoinCircleResult,
   DepositInfo 
 } from '@/utils/contracts/types';
+import { KYEGROUP_BYTECODE } from '@/utils/contracts/bytecode';
 
 // Utility functions
 function hashLineGroupId(groupId: string): string {
@@ -46,7 +47,8 @@ export const useKyeContracts = () => {
 
   const addresses = getContractAddresses(DEFAULT_CHAIN_ID);
   
-  console.log('Using contract addresses for chain', DEFAULT_CHAIN_ID, ':', addresses);
+  // Log configuration source and addresses
+  logAddressConfiguration();
 
   // Use the validateNetwork from wallet SDK (renamed to validateWalletNetwork above)
 
@@ -209,13 +211,45 @@ export const useKyeContracts = () => {
         data: { transactionHash: result, circleName }
       });
 
+      // Calculate the deterministic contract address using CREATE2
+      console.log('🔧 Calculating CREATE2 address...');
+      
+      // Get the init code hash (keccak256 of bytecode + constructor args)
+      const constructorArgs = ethers.AbiCoder.defaultAbiCoder().encode(
+        ['address', 'address', 'address', 'bytes32', 'uint256', 'uint256', 'uint256', 'uint256'],
+        [
+          params.usdtToken,
+          params.yieldAdapter,
+          account, // creator
+          params.lineGroupIdHash,
+          params.depositAmount,
+          params.penaltyBps,
+          params.roundDuration,
+          maxMembers
+        ]
+      );
+      
+      const initCode = KYEGROUP_BYTECODE + constructorArgs.slice(2); // Remove 0x prefix from constructor args
+      const initCodeHash = ethers.keccak256(initCode);
+      
+      console.log('Constructor args:', constructorArgs);
+      console.log('Init code hash:', initCodeHash);
+      
+      // Calculate CREATE2 address
+      const predictedAddress = ethers.getCreate2Address(
+        addresses.KyeFactory, // factory address
+        salt, // salt
+        initCodeHash // init code hash
+      );
+      
+      console.log('✅ Predicted contract address:', predictedAddress);
       console.log('=== CREATE CIRCLE SUCCESS ===');
 
       return {
         hash: result as string,
         success: true,
-        circleAddress: 'pending', // Will be determined from transaction receipt
-        salt: salt // Include salt for future address calculation if needed
+        circleAddress: predictedAddress, // Immediate deterministic address!
+        salt: salt // Include salt for future reference
       };
 
     } catch (error) {
@@ -317,9 +351,9 @@ export const useKyeContracts = () => {
       const userIdHash = hashLineUserId(lineUserId);
       console.log('Generated LINE user ID hash:', userIdHash);
 
-      // Encode the joinCircle function call
+      // Encode the join function call
       const groupInterface = new ethers.Interface(KYE_GROUP_ABI);
-      const joinCircleData = groupInterface.encodeFunctionData('joinCircle', [userIdHash]);
+      const joinCircleData = groupInterface.encodeFunctionData('join', [userIdHash]);
 
       console.log('✅ Encoded joinCircle call:', joinCircleData);
 
@@ -525,12 +559,23 @@ export const useKyeContracts = () => {
       // Try to detect network by making RPC calls
       // Since we don't have direct chainId access, we'll try contract interactions to detect network
       console.log('Attempting network detection through contract calls...');
+      console.log('🔧 Using environment-based addresses from addresses.ts');
       
-      // Try each network's USDT contract
+      // Try each network's USDT contract using addresses from addresses.ts
+      const networkAddresses = {
+        1001: getContractAddresses(1001),
+        31337: getContractAddresses(31337)
+      };
+      
       const networks = [
-        { chainId: 1001, name: 'Kaia Kairos Testnet', usdtAddress: '0x8f198cd718aa1bf2b338ddba78736e91cd254da6' },
-        { chainId: 31337, name: 'Local Anvil', usdtAddress: '0x5fbdb2315678afecb367f032d93f642f64180aa3' }
+        { chainId: 1001, name: 'Kaia Kairos Testnet', usdtAddress: networkAddresses[1001].MockUSDT },
+        { chainId: 31337, name: 'Local Anvil', usdtAddress: networkAddresses[31337].MockUSDT }
       ];
+      
+      console.log('📋 Network addresses for detection:');
+      networks.forEach(net => {
+        console.log(`  • ${net.name}: ${net.usdtAddress}`);
+      });
       
       for (const network of networks) {
         try {
@@ -656,6 +701,7 @@ export const useKyeContracts = () => {
 
       // Step 1: Detect actual network
       console.log('🔍 Detecting actual network...');
+      console.log('📋 Note: Network detection now uses addresses from addresses.ts (environment-based)');
       const detectedNetwork = await detectActualNetwork();
       
       if (!detectedNetwork) {

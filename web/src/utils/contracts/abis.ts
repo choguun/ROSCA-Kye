@@ -24,7 +24,8 @@ export const KYE_FACTORY_ABI = [
           { name: "lineGroupIdHash", type: "bytes32" },
           { name: "depositAmount", type: "uint256" },
           { name: "penaltyBps", type: "uint256" },
-          { name: "roundDuration", type: "uint256" }
+          { name: "roundDuration", type: "uint256" },
+          { name: "maxMembers", type: "uint8" }
         ]
       }
     ],
@@ -82,7 +83,28 @@ export const KYE_FACTORY_ABI = [
 ] as const;
 
 export const KYE_GROUP_ABI = [
+  // Constructor
+  {
+    type: "constructor",
+    inputs: [
+      { name: "_usdtToken", type: "address" },
+      { name: "_yieldAdapter", type: "address" },
+      { name: "_creator", type: "address" },
+      { name: "_lineGroupIdHash", type: "bytes32" },
+      { name: "_depositAmount", type: "uint256" },
+      { name: "_penaltyBps", type: "uint256" },
+      { name: "_roundDuration", type: "uint256" },
+      { name: "_maxMembers", type: "uint256" }
+    ]
+  },
   // View functions
+  {
+    type: "function",
+    name: "maxMembers",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
   {
     type: "function",
     name: "currentPhase",
@@ -150,8 +172,8 @@ export const KYE_GROUP_ABI = [
   // Core actions
   {
     type: "function",
-    name: "joinCircle",
-    inputs: [{ name: "lineUserIdHash", type: "bytes32" }],
+    name: "join",
+    inputs: [{ name: "_lineUserIdHash", type: "bytes32" }],
     outputs: [],
     stateMutability: "nonpayable"
   },

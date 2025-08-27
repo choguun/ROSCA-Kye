@@ -1,18 +1,52 @@
-// Contract addresses on different networks
-export const CONTRACT_ADDRESSES = {
-  // Kaia Kairos Testnet (Chain ID: 1001)
-  1001: {
-    MockUSDT: '0x8f198cd718aa1bf2b338ddba78736e91cd254da6',
-    SavingsPocket: '0xc05ba2595d916ad94378438dbb3b6f3161bd6c5b',
-    KyeFactory: '0x724f792f3d11c8eb1471e84abef654c93ce639de',
-  },
-  // Local Anvil (Chain ID: 31337)
-  31337: {
-    MockUSDT: '0x5fbdb2315678afecb367f032d93f642f64180aa3',
-    SavingsPocket: '0xe7f1725e7734ce288f8367e1bb143e90bb3f0512',
-    KyeFactory: '0x5fc8d32690cc91d4c39d9d3abcbd16989f875707',
-  }
+// Contract addresses from environment variables
+const getContractAddressesFromEnv = () => {
+  // Primary addresses from environment variables
+  const envAddresses = {
+    MockUSDT: process.env.NEXT_PUBLIC_USDT_ADDRESS,
+    SavingsPocket: process.env.NEXT_PUBLIC_SAVINGS_POCKET_ADDRESS,
+    KyeFactory: process.env.NEXT_PUBLIC_KYE_FACTORY_ADDRESS,
+  };
+
+  // Fallback addresses for different networks
+  const fallbackAddresses = {
+    // Kaia Kairos Testnet (Chain ID: 1001)
+    1001: {
+      MockUSDT: '0x8f198cd718aa1bf2b338ddba78736e91cd254da6',
+      SavingsPocket: '0xc05ba2595d916ad94378438dbb3b6f3161bd6c5b',
+      KyeFactory: '0x724f792f3d11c8eb1471e84abef654c93ce639de',
+    },
+    // Local Anvil (Chain ID: 31337)
+    31337: {
+      MockUSDT: '0x5fbdb2315678afecb367f032d93f642f64180aa3',
+      SavingsPocket: '0xe7f1725e7734ce288f8367e1bb143e90bb3f0512',
+      KyeFactory: '0x5fc8d32690cc91d4c39d9d3abcbd16989f875707',
+    }
+  };
+
+  return { envAddresses, fallbackAddresses };
 };
+
+// Contract addresses on different networks
+export const CONTRACT_ADDRESSES = (() => {
+  const { envAddresses, fallbackAddresses } = getContractAddressesFromEnv();
+  
+  // If all environment variables are set, use them for the default chain
+  if (envAddresses.MockUSDT && envAddresses.SavingsPocket && envAddresses.KyeFactory) {
+    return {
+      // Use environment addresses for default chain (1001)
+      1001: {
+        MockUSDT: envAddresses.MockUSDT,
+        SavingsPocket: envAddresses.SavingsPocket,
+        KyeFactory: envAddresses.KyeFactory,
+      },
+      // Keep local development addresses
+      31337: fallbackAddresses[31337]
+    };
+  }
+  
+  // Otherwise, use fallback addresses
+  return fallbackAddresses;
+})();
 
 // Get contract addresses for current network
 export function getContractAddresses(chainId: number) {
@@ -40,3 +74,30 @@ export const NETWORKS = {
 };
 
 export const DEFAULT_CHAIN_ID = 1001; // Kaia Kairos Testnet
+
+// Utility function to check address configuration source
+export function getAddressConfigSource() {
+  const { envAddresses } = getContractAddressesFromEnv();
+  const hasEnvConfig = envAddresses.MockUSDT && envAddresses.SavingsPocket && envAddresses.KyeFactory;
+  
+  return {
+    source: hasEnvConfig ? 'environment' : 'hardcoded',
+    envVariables: envAddresses,
+    isComplete: hasEnvConfig
+  };
+}
+
+// Debug function to log current configuration
+export function logAddressConfiguration() {
+  const config = getAddressConfigSource();
+  console.log('📋 Contract Address Configuration:');
+  console.log(`- Source: ${config.source}`);
+  console.log('- Environment Variables:');
+  console.log(`  • NEXT_PUBLIC_USDT_ADDRESS: ${config.envVariables.MockUSDT || 'not set'}`);
+  console.log(`  • NEXT_PUBLIC_SAVINGS_POCKET_ADDRESS: ${config.envVariables.SavingsPocket || 'not set'}`);
+  console.log(`  • NEXT_PUBLIC_KYE_FACTORY_ADDRESS: ${config.envVariables.KyeFactory || 'not set'}`);
+  console.log('- Current Addresses:');
+  console.log(`  • MockUSDT: ${CONTRACT_ADDRESSES[DEFAULT_CHAIN_ID]?.MockUSDT}`);
+  console.log(`  • SavingsPocket: ${CONTRACT_ADDRESSES[DEFAULT_CHAIN_ID]?.SavingsPocket}`);
+  console.log(`  • KyeFactory: ${CONTRACT_ADDRESSES[DEFAULT_CHAIN_ID]?.KyeFactory}`);
+}

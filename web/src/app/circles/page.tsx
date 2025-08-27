@@ -6,7 +6,6 @@ import { useKaiaWalletSdk } from '@/components/Wallet/Sdk/walletSdk.hooks';
 import { useKyeContracts } from '@/hooks/useKyeContracts';
 import { WalletButton } from '@/components/Wallet/Button/WalletButton';
 import { useRouter } from 'next/navigation';
-import { ethers } from 'ethers';
 import styles from './page.module.css';
 
 export default function Circles() {
@@ -14,6 +13,9 @@ export default function Circles() {
     const [showJoinForm, setShowJoinForm] = useState(false);
     const [circleName, setCircleName] = useState('');
     const [monthlyAmount, setMonthlyAmount] = useState('');
+    const [maxMembers, setMaxMembers] = useState(5);
+    const [penaltyBps, setPenaltyBps] = useState(500); // 5%
+    const [roundDurationDays, setRoundDurationDays] = useState(30);
     const [inviteCode, setInviteCode] = useState('');
     const [creating, setCreating] = useState(false);
     const [joining, setJoining] = useState(false);
@@ -32,7 +34,7 @@ export default function Circles() {
 
     // Wallet hooks - exactly like profile page
     const { account, setAccount } = useWalletAccountStore();
-    const { getAccount, getChainId } = useKaiaWalletSdk();
+    const { getAccount, getChainId, getBalance, getErc20TokenBalance } = useKaiaWalletSdk();
     const { createCircle, joinCircle, addresses, getContractAddressFromTx } = useKyeContracts();
     const router = useRouter();
 
@@ -84,57 +86,63 @@ export default function Circles() {
             setBalanceLoading(true);
             console.log('=== CHECKING TOKEN BALANCES ===');
             console.log('Account:', account);
+            console.log('Contract addresses from useKyeContracts:', addresses);
+            console.log('MockUSDT address:', addresses?.MockUSDT);
 
             try {
-                // Get provider using the SDK
-                const provider = new ethers.BrowserProvider(window.ethereum);
+                console.log('🔍 Fetching balances using SDK methods...');
                 
-                // Check Kaia native token balance
-                const kaiaBalanceWei = await provider.getBalance(account);
-                const kaiaBalanceEth = ethers.formatEther(kaiaBalanceWei);
+                // Check Kaia native token balance using SDK
+                const kaiaBalanceWei = await getBalance([account, 'latest']);
+                const kaiaBalanceEth = (parseInt(kaiaBalanceWei as string, 16) / 1e18).toFixed(4);
                 setKaiaBalance(kaiaBalanceEth);
-                console.log('Kaia Balance:', kaiaBalanceEth, 'KAIA');
+                console.log('✅ Kaia Balance (SDK):', kaiaBalanceEth, 'KAIA');
 
-                // Check USDT balance (ERC20 token)
+                // Check USDT balance using SDK
                 let usdtBalanceFormatted = '0';
-                if (addresses?.usdt) {
-                    const usdtContract = new ethers.Contract(
-                        addresses.usdt,
-                        [
-                            'function balanceOf(address owner) view returns (uint256)',
-                            'function decimals() view returns (uint8)'
-                        ],
-                        provider
-                    );
-
-                    const usdtBalanceWei = await usdtContract.balanceOf(account);
-                    const usdtDecimals = await usdtContract.decimals();
-                    usdtBalanceFormatted = ethers.formatUnits(usdtBalanceWei, usdtDecimals);
-                    console.log('USDT Balance:', usdtBalanceFormatted, 'USDT');
+                if (addresses?.MockUSDT) {
+                    console.log('🔍 Fetching USDT balance from:', addresses.MockUSDT);
+                    const usdtBalanceWei = await getErc20TokenBalance(addresses.MockUSDT, account);
+                    usdtBalanceFormatted = (parseInt(usdtBalanceWei as string, 16) / 1e6).toFixed(2); // USDT has 6 decimals
+                    console.log('✅ USDT Balance (SDK):', usdtBalanceFormatted, 'USDT');
                 } else {
-                    console.log('USDT contract address not available');
+                    console.log('❌ USDT contract address not available from addresses.MockUSDT');
                 }
                 
                 setUsdtBalance(usdtBalanceFormatted);
 
-                // Check if user has insufficient tokens (needs at least 0.01 KAIA and 1 USDT)
-                const hasKaia = parseFloat(kaiaBalanceEth) >= 0.01;
-                const hasUsdt = parseFloat(usdtBalanceFormatted) >= 1;
+                // Check if user has ZERO tokens (show modal when balance = 0)
+                const kaiaBalance = parseFloat(kaiaBalanceEth);
+                const usdtBalance = parseFloat(usdtBalanceFormatted);
+                const hasZeroKaia = kaiaBalance === 0;
+                const hasZeroUsdt = usdtBalance === 0;
 
-                console.log('Has Kaia (>=0.01):', hasKaia, 'Balance:', kaiaBalanceEth);
-                console.log('Has USDT (>=1):', hasUsdt, 'Balance:', usdtBalanceFormatted);
+                console.log('🔍 Balance Check Results:');
+                console.log('- Kaia Balance:', kaiaBalance, 'KAIA', hasZeroKaia ? '(ZERO - will show modal)' : '(OK)');
+                console.log('- USDT Balance:', usdtBalance, 'USDT', hasZeroUsdt ? '(ZERO - will show modal)' : '(OK)');
 
-                if (!hasKaia || !hasUsdt) {
-                    console.log('❌ Insufficient token balance - showing modal');
+                if (hasZeroKaia || hasZeroUsdt) {
+                    console.log('❌ Zero token balance detected - showing modal');
                     setShowBalanceModal(true);
                 } else {
-                    console.log('✅ Sufficient token balance');
+                    console.log('✅ Both tokens have non-zero balance - no modal needed');
+                    setShowBalanceModal(false); // Explicitly hide modal if balances are OK
                 }
 
                 setBalanceChecked(true);
             } catch (error) {
                 console.error('❌ Error checking balances:', error);
-                // Don't show modal on error - might be network issue
+                console.error('Full error details:', {
+                    message: error.message,
+                    name: error.name,
+                    stack: error.stack
+                });
+                
+                // Set error balances and show modal since we can't verify tokens
+                setKaiaBalance('Error');
+                setUsdtBalance('Error');
+                setShowBalanceModal(true); // Show modal on error since we can't verify tokens
+                setBalanceChecked(true); // Still mark as checked to avoid infinite retries
             } finally {
                 setBalanceLoading(false);
             }
@@ -154,14 +162,47 @@ export default function Circles() {
                 if (circle.address === 'pending' && circle.transactionHash) {
                     console.log(`🔄 Checking pending contract for circle: ${circle.name}`);
                     
-                    // Try to get the contract address
-                    const contractAddress = await updateCircleAddress(circle.transactionHash, i);
-                    
-                    if (contractAddress) {
-                        console.log(`✅ Successfully updated contract address for ${circle.name}: ${contractAddress}`);
-                        break; // Only update one at a time to avoid overwhelming
-                    } else {
-                        console.log(`⏳ Contract still pending for ${circle.name}`);
+                    try {
+                        console.log('🔍 Attempting to get contract address for tx:', circle.transactionHash);
+                        const contractAddress = await getContractAddressFromTx(circle.transactionHash);
+                        
+                        if (contractAddress) {
+                            console.log('✅ Found contract address:', contractAddress);
+                            
+                            // Update the circle in state
+                            setMyCircles(prevCircles => {
+                                const updatedCircles = [...prevCircles];
+                                if (updatedCircles[i]) {
+                                    updatedCircles[i] = {
+                                        ...updatedCircles[i],
+                                        address: contractAddress
+                                    };
+                                }
+                                return updatedCircles;
+                            });
+                            
+                            // Update localStorage
+                            try {
+                                const saved = localStorage.getItem('recentCircles');
+                                if (saved) {
+                                    const circles = JSON.parse(saved);
+                                    if (circles[i]) {
+                                        circles[i].address = contractAddress;
+                                        localStorage.setItem('recentCircles', JSON.stringify(circles));
+                                        console.log('✅ Updated localStorage with contract address');
+                                    }
+                                }
+                            } catch (error) {
+                                console.error('Error updating localStorage:', error);
+                            }
+                            
+                            console.log(`✅ Successfully updated contract address for ${circle.name}: ${contractAddress}`);
+                            break; // Only update one at a time to avoid overwhelming
+                        } else {
+                            console.log(`⏳ Contract still pending for ${circle.name}`);
+                        }
+                    } catch (error) {
+                        console.error('Error getting contract address:', error);
                     }
                 }
             }
@@ -173,7 +214,7 @@ export default function Circles() {
         const interval = setInterval(updatePendingContracts, 30000); // Check every 30 seconds
         
         return () => clearInterval(interval);
-    }, [myCircles, getContractAddressFromTx, updateCircleAddress]);
+    }, [myCircles, getContractAddressFromTx]);
 
     const handleCreateClick = () => {
         setShowCreateForm(true);
@@ -211,13 +252,56 @@ export default function Circles() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
-    const copyToClipboard = (text, label) => {
-        navigator.clipboard.writeText(text).then(() => {
-            alert(`${label} copied to clipboard!`);
-        }).catch(() => {
-            alert('Failed to copy to clipboard');
-        });
-    };
+    const fallbackCopyToClipboard = useCallback((text, label) => {
+        try {
+            // Create a temporary textarea element
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            
+            const successful = document.execCommand('copy');
+            document.body.removeChild(textArea);
+            
+            if (successful) {
+                console.log('✅ Fallback copy successful');
+                alert(`${label} copied to clipboard!`);
+            } else {
+                console.error('❌ Fallback copy failed');
+                alert(`❌ Failed to copy ${label}. Please copy manually.`);
+            }
+        } catch (error) {
+            console.error('❌ Fallback copy error:', error);
+            alert(`❌ Failed to copy ${label}. Please copy manually:\n\n${text}`);
+        }
+    }, []);
+
+    const copyToClipboard = useCallback((text, label) => {
+        console.log('📋 Copying to clipboard:', label);
+        
+        try {
+            if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    console.log('✅ Clipboard copy successful');
+                    alert(`${label} copied to clipboard!`);
+                }).catch((err) => {
+                    console.error('❌ Clipboard API failed:', err);
+                    // Fallback method
+                    fallbackCopyToClipboard(text, label);
+                });
+            } else {
+                console.log('⚠️ Clipboard API not available, using fallback');
+                fallbackCopyToClipboard(text, label);
+            }
+        } catch (error) {
+            console.error('❌ Error in copyToClipboard:', error);
+            fallbackCopyToClipboard(text, label);
+        }
+    }, [fallbackCopyToClipboard]);
 
     const handleRedirectToProfile = () => {
         router.push('/profile');
@@ -227,11 +311,14 @@ export default function Circles() {
         setShowBalanceModal(false);
     };
 
-    // Function to update circle address when contract is deployed
-    const updateCircleAddress = async (transactionHash: string, circleIndex: number) => {
+    const handleRefreshAddress = async (circle, circleIndex) => {
+        if (!circle.transactionHash) return;
+        
+        console.log('🔄 Manual refresh for contract address:', circle.transactionHash);
+        
         try {
-            console.log('🔍 Attempting to get contract address for tx:', transactionHash);
-            const contractAddress = await getContractAddressFromTx(transactionHash);
+            console.log('🔍 Attempting to get contract address for tx:', circle.transactionHash);
+            const contractAddress = await getContractAddressFromTx(circle.transactionHash);
             
             if (contractAddress) {
                 console.log('✅ Found contract address:', contractAddress);
@@ -263,33 +350,26 @@ export default function Circles() {
                     console.error('Error updating localStorage:', error);
                 }
                 
-                return contractAddress;
+                alert(`✅ Contract address found!\n\n${contractAddress}\n\nYou can now share the invite link.`);
+            } else {
+                alert('⏳ Contract is still being deployed. Please wait a few more minutes and try again.');
             }
         } catch (error) {
             console.error('Error getting contract address:', error);
-        }
-        
-        return null;
-    };
-
-    const handleRefreshAddress = async (circle, circleIndex) => {
-        if (!circle.transactionHash) return;
-        
-        console.log('🔄 Manual refresh for contract address:', circle.transactionHash);
-        const contractAddress = await updateCircleAddress(circle.transactionHash, circleIndex);
-        
-        if (contractAddress) {
-            alert(`✅ Contract address found!\n\n${contractAddress}\n\nYou can now share the invite link.`);
-        } else {
-            alert('⏳ Contract is still being deployed. Please wait a few more minutes and try again.');
+            alert('❌ Error checking contract status. Please try again later.');
         }
     };
 
-    const handleShareInviteLink = (circle) => {
-        if (!circle.address || circle.address === 'pending') {
-            // For now, share the transaction hash as a reference
-            const tempInviteMessage = `🤝 Join our Savings Circle: "${circle.name}"
-            
+    const handleShareInviteLink = useCallback((circle) => {
+        console.log('🔗 Share invite link clicked for circle:', circle);
+        
+        try {
+            if (!circle.address || circle.address === 'pending') {
+                console.log('⏳ Contract address is pending, sharing deployment info');
+                
+                // For now, share the transaction hash as a reference
+                const tempInviteMessage = `🤝 Join our Savings Circle: "${circle.name}"
+                
 💰 Monthly Amount: ${circle.depositAmount} USDT
 👥 Members: ${circle.memberCount}/5
 📊 Phase: ${circle.phase}
@@ -307,25 +387,31 @@ Join us in this Korean-style savings group (Kye)! 🇰🇷
 
 ⚠️ Note: Contract is still being deployed on Kaia blockchain. Please wait for confirmation.`;
 
-            // Try to use Web Share API first (mobile-friendly)
-            if (navigator.share) {
-                navigator.share({
-                    title: `Join Savings Circle: ${circle.name}`,
-                    text: tempInviteMessage,
-                    url: window.location.origin + '/circles'
-                }).catch(err => {
-                    console.log('Share failed:', err);
+                // Try to use Web Share API first (mobile-friendly)
+                if (typeof navigator !== 'undefined' && navigator.share) {
+                    console.log('📱 Using native share API...');
+                    navigator.share({
+                        title: `Join Savings Circle: ${circle.name}`,
+                        text: tempInviteMessage,
+                        url: window.location.origin + '/circles'
+                    }).then(() => {
+                        console.log('✅ Share successful');
+                    }).catch(err => {
+                        console.log('❌ Share failed, falling back to clipboard:', err);
+                        copyToClipboard(tempInviteMessage, 'Invite Message (Contract Deploying)');
+                    });
+                } else {
+                    console.log('📋 Using clipboard fallback...');
                     copyToClipboard(tempInviteMessage, 'Invite Message (Contract Deploying)');
-                });
-            } else {
-                copyToClipboard(tempInviteMessage, 'Invite Message (Contract Deploying)');
+                }
+                return;
             }
-            return;
-        }
 
-        // Create invite message
-        const inviteMessage = `🤝 Join our Savings Circle: "${circle.name}"
-        
+            console.log('✅ Contract address available, sharing full invite');
+            
+            // Create invite message
+            const inviteMessage = `🤝 Join our Savings Circle: "${circle.name}"
+            
 💰 Monthly Amount: ${circle.depositAmount} USDT
 👥 Members: ${circle.memberCount}/5
 📊 Phase: ${circle.phase}
@@ -341,22 +427,29 @@ ${circle.address}
 
 Join us in this Korean-style savings group (Kye)! 🇰🇷`;
 
-        // Try to use Web Share API first (mobile-friendly)
-        if (navigator.share) {
-            navigator.share({
-                title: `Join Savings Circle: ${circle.name}`,
-                text: inviteMessage,
-                url: window.location.origin + '/circles'
-            }).catch(err => {
-                console.log('Share failed:', err);
-                // Fallback to clipboard
+            // Try to use Web Share API first (mobile-friendly)
+            if (typeof navigator !== 'undefined' && navigator.share) {
+                console.log('📱 Using native share API...');
+                navigator.share({
+                    title: `Join Savings Circle: ${circle.name}`,
+                    text: inviteMessage,
+                    url: window.location.origin + '/circles'
+                }).then(() => {
+                    console.log('✅ Share successful');
+                }).catch(err => {
+                    console.log('❌ Share failed, falling back to clipboard:', err);
+                    copyToClipboard(inviteMessage, 'Invite Message');
+                });
+            } else {
+                console.log('📋 Using clipboard fallback...');
                 copyToClipboard(inviteMessage, 'Invite Message');
-            });
-        } else {
-            // Fallback to clipboard copy
-            copyToClipboard(inviteMessage, 'Invite Message');
+            }
+            
+        } catch (error) {
+            console.error('❌ Error in share invite link:', error);
+            alert('❌ Failed to share invite. Please try again.');
         }
-    };
+    }, [copyToClipboard]);
 
     const handleViewMembers = (circle) => {
         // For now, show basic member info
@@ -450,7 +543,7 @@ ${circle.phase === 'Setup' ?
             console.log('Amount in USDT (wei):', amountInUSDT);
 
             // Call the actual smart contract
-            const result = await createCircle(circleName, amountInUSDT);
+            const result = await createCircle(circleName, amountInUSDT, penaltyBps, roundDurationDays, maxMembers);
             console.log('✅ Circle created successfully:', result);
 
             if (result.success) {
@@ -462,6 +555,9 @@ ${circle.phase === 'Setup' ?
                         const createdCircle = {
                             name: circleName,
                             depositAmount: monthlyAmount,
+                            maxMembers: maxMembers,
+                            penaltyBps: penaltyBps,
+                            roundDurationDays: roundDurationDays,
                             memberCount: 1,
                             phase: 'Setup',
                             isCreator: true,
@@ -679,6 +775,19 @@ ${circle.phase === 'Setup' ?
                                 />
                             </div>
                             <div className={styles.inputGroup}>
+                                <label>Circle Size (Members)</label>
+                                <select
+                                    className={styles.input}
+                                    value={maxMembers}
+                                    onChange={(e) => setMaxMembers(parseInt(e.target.value))}
+                                >
+                                    <option value={2}>2 Members (Intimate)</option>
+                                    <option value={3}>3 Members (Small)</option>
+                                    <option value={4}>4 Members (Medium)</option>
+                                    <option value={5}>5 Members (Traditional)</option>
+                                </select>
+                            </div>
+                            <div className={styles.inputGroup}>
                                 <label>Monthly Amount (USDT)</label>
                                 <input 
                                     type="number" 
@@ -687,6 +796,33 @@ ${circle.phase === 'Setup' ?
                                     value={monthlyAmount}
                                     onChange={(e) => setMonthlyAmount(e.target.value)}
                                 />
+                            </div>
+                            <div className={styles.inputGroup}>
+                                <label>Late Penalty (%)</label>
+                                <select
+                                    className={styles.input}
+                                    value={penaltyBps}
+                                    onChange={(e) => setPenaltyBps(parseInt(e.target.value))}
+                                >
+                                    <option value={100}>1% (Lenient)</option>
+                                    <option value={300}>3% (Moderate)</option>
+                                    <option value={500}>5% (Standard)</option>
+                                    <option value={1000}>10% (Strict)</option>
+                                    <option value={2000}>20% (Maximum)</option>
+                                </select>
+                            </div>
+                            <div className={styles.inputGroup}>
+                                <label>Round Duration</label>
+                                <select
+                                    className={styles.input}
+                                    value={roundDurationDays}
+                                    onChange={(e) => setRoundDurationDays(parseInt(e.target.value))}
+                                >
+                                    <option value={7}>7 days (Weekly)</option>
+                                    <option value={14}>14 days (Bi-weekly)</option>
+                                    <option value={30}>30 days (Monthly)</option>
+                                    <option value={60}>60 days (Bi-monthly)</option>
+                                </select>
                             </div>
                             <button 
                                 className={styles.createButton}
@@ -836,34 +972,70 @@ ${circle.phase === 'Setup' ?
                                         >
                                             ⚙️ Circle Settings
                                         </button>
-                                        {selectedCircle.address === 'pending' && (
-                                            <button 
-                                                className={styles.refreshButton}
-                                                onClick={() => handleRefreshAddress(selectedCircle, myCircles.findIndex(c => c.transactionHash === selectedCircle.transactionHash))}
-                                            >
-                                                🔄 Refresh Address
-                                            </button>
-                                        )}
                                     </div>
                                     
                                     <div className={styles.inviteSection}>
                                         <h4>Invite Code</h4>
-                                        <p>Share this address with friends to let them join your circle:</p>
-                                        <div className={styles.inviteCodeContainer}>
-                                            <input 
-                                                type="text" 
-                                                value={selectedCircle.address || 'Contract deploying...'}
-                                                readOnly 
-                                                className={styles.inviteCodeInput}
-                                            />
-                                            <button 
-                                                className={styles.copyButton}
-                                                onClick={() => copyToClipboard(selectedCircle.address, 'Invite Code')}
-                                                disabled={!selectedCircle.address || selectedCircle.address === 'pending'}
-                                            >
-                                                📋 Copy
-                                            </button>
-                                        </div>
+                                        {selectedCircle.address && selectedCircle.address !== 'pending' ? (
+                                            <>
+                                                <p>Share this address with friends to let them join your circle:</p>
+                                                <div className={styles.inviteCodeContainer}>
+                                                    <input 
+                                                        type="text" 
+                                                        value={selectedCircle.address}
+                                                        readOnly 
+                                                        className={styles.inviteCodeInput}
+                                                    />
+                                                    <button 
+                                                        className={styles.copyButton}
+                                                        onClick={() => copyToClipboard(selectedCircle.address, 'Invite Code')}
+                                                    >
+                                                        📋 Copy
+                                                    </button>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <p className={styles.pendingMessage}>
+                                                    ⏳ Your circle contract is being deployed on the Kaia blockchain...
+                                                </p>
+                                                <div className={styles.inviteCodeContainer}>
+                                                    <input 
+                                                        type="text" 
+                                                        value="🔄 Generating invite code..."
+                                                        readOnly 
+                                                        className={`${styles.inviteCodeInput} ${styles.pending}`}
+                                                    />
+                                                    <button 
+                                                        className={styles.copyButton}
+                                                        disabled={true}
+                                                    >
+                                                        ⏳ Wait
+                                                    </button>
+                                                </div>
+                                                <div className={styles.deploymentStatus}>
+                                                    <p><strong>📋 Transaction Hash:</strong></p>
+                                                    <div className={styles.inviteCodeContainer}>
+                                                        <input 
+                                                            type="text" 
+                                                            value={selectedCircle.transactionHash}
+                                                            readOnly 
+                                                            className={styles.inviteCodeInput}
+                                                        />
+                                                        <button 
+                                                            className={styles.copyButton}
+                                                            onClick={() => copyToClipboard(selectedCircle.transactionHash, 'Transaction Hash')}
+                                                        >
+                                                            📋 Copy
+                                                        </button>
+                                                    </div>
+                                                    <p className={styles.helpText}>
+                                                        💡 The invite code will appear here once deployment is complete. 
+                                                        You can share the transaction hash above for now.
+                                                    </p>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -950,12 +1122,21 @@ ${circle.phase === 'Setup' ?
                             </div>
                             <div className={styles.modalBody}>
                                 <p className={styles.modalDescription}>
-                                    You need both Kaia (native token) and USDT tokens to create or join savings circles. 
-                                    Please get some tokens from the Profile page first.
+                                    {(kaiaBalance === 'Error' || usdtBalance === 'Error') ? (
+                                        <>
+                                            ❌ Unable to check your token balances. This could be due to network issues or wallet connection problems.
+                                            Please ensure you're connected to the correct network and try refreshing the page.
+                                        </>
+                                    ) : (
+                                        <>
+                                            You need both Kaia (native token) and USDT tokens to create or join savings circles. 
+                                            Please get some tokens from the Profile page first.
+                                        </>
+                                    )}
                                 </p>
 
                                 <div className={styles.tokenRequirements}>
-                                    <div className={`${styles.tokenItem} ${parseFloat(kaiaBalance) >= 0.01 ? styles.sufficient : styles.insufficient}`}>
+                                    <div className={`${styles.tokenItem} ${parseFloat(kaiaBalance) > 0 ? styles.sufficient : styles.insufficient}`}>
                                         <div className={styles.tokenIcon}>💎</div>
                                         <div className={styles.tokenInfo}>
                                             <div className={styles.tokenName}>Kaia (KAIA)</div>
@@ -965,11 +1146,11 @@ ${circle.phase === 'Setup' ?
                                             </div>
                                         </div>
                                         <div className={styles.statusIcon}>
-                                            {parseFloat(kaiaBalance) >= 0.01 ? '✅' : '❌'}
+                                            {parseFloat(kaiaBalance) > 0 ? '✅' : '❌'}
                                         </div>
                                     </div>
 
-                                    <div className={`${styles.tokenItem} ${parseFloat(usdtBalance) >= 1 ? styles.sufficient : styles.insufficient}`}>
+                                    <div className={`${styles.tokenItem} ${parseFloat(usdtBalance) > 0 ? styles.sufficient : styles.insufficient}`}>
                                         <div className={styles.tokenIcon}>💵</div>
                                         <div className={styles.tokenInfo}>
                                             <div className={styles.tokenName}>Mock USDT</div>
@@ -979,13 +1160,13 @@ ${circle.phase === 'Setup' ?
                                             </div>
                                         </div>
                                         <div className={styles.statusIcon}>
-                                            {parseFloat(usdtBalance) >= 1 ? '✅' : '❌'}
+                                            {parseFloat(usdtBalance) > 0 ? '✅' : '❌'}
                                         </div>
                                     </div>
                                 </div>
 
                                 <p className={styles.modalInstruction}>
-                                    📝 <strong>Requirements:</strong> At least 0.01 KAIA + 1 USDT needed to participate in circles
+                                    📝 <strong>Requirements:</strong> Both KAIA and USDT tokens are needed to participate in circles
                                 </p>
                             </div>
                             <div className={styles.modalFooter}>

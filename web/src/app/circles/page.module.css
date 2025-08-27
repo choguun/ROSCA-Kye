@@ -1190,6 +1190,47 @@
   box-shadow: 0 0 0 3px rgba(0, 185, 0, 0.1);
 }
 
+.inviteCodeInput.pending {
+  background: #fff3cd;
+  border-color: #ffc107;
+  color: #856404;
+  font-style: italic;
+}
+
+.pendingMessage {
+  font-size: 14px;
+  color: #856404;
+  background: #fff3cd;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #ffc107;
+  margin: 0 0 16px 0;
+  text-align: center;
+  font-weight: 500;
+}
+
+.deploymentStatus {
+  margin-top: 20px;
+  padding: 16px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+}
+
+.deploymentStatus p {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: #495057;
+}
+
+.helpText {
+  font-size: 13px !important;
+  color: #6c757d !important;
+  margin-top: 12px !important;
+  line-height: 1.4;
+  font-style: italic;
+}
+
 /* Mobile Optimizations */
 @media (max-width: 768px) {
   .root {
