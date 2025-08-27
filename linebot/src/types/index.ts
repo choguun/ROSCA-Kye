@@ -49,6 +49,7 @@ export interface CircleMetadata {
   penaltyBps: number;
   totalValueLocked: string;
   yieldEarned: string;
+  depositAmount?: string; // Added for notification service
 }
 
 // Notification System Types
@@ -57,7 +58,7 @@ export interface NotificationEvent {
   type: NotificationType;
   lineUserId: string;
   circleAddress?: string;
-  messageContent: FlexMessage | TextMessage;
+  messageContent: any; // LINE SDK message type
   scheduledTime: Date;
   status: NotificationStatus;
   retryCount: number;
@@ -71,6 +72,7 @@ export enum NotificationType {
   ROUND_STARTED = 'round_started',
   PENALTY_APPLIED = 'penalty_applied',
   CIRCLE_COMPLETED = 'circle_completed',
+  CIRCLE_STATUS = 'circle_status',
   RISK_ALERT = 'risk_alert',
   GRACE_PERIOD_GRANTED = 'grace_period_granted',
   WELCOME = 'welcome',
@@ -84,91 +86,28 @@ export enum NotificationStatus {
   CANCELLED = 'cancelled'
 }
 
-// Message Types (LINE SDK Extensions)
-export interface FlexMessage {
-  type: 'flex';
-  altText: string;
-  contents: FlexBubble | FlexCarousel;
-}
-
-export interface FlexBubble {
-  type: 'bubble';
-  size?: 'nano' | 'micro' | 'kilo' | 'mega' | 'giga';
-  direction?: 'ltr' | 'rtl';
-  header?: FlexBox;
-  hero?: FlexComponent;
-  body?: FlexBox;
-  footer?: FlexBox;
-  styles?: FlexBubbleStyle;
-  action?: Action;
-}
-
-export interface FlexBox {
-  type: 'box';
-  layout: 'horizontal' | 'vertical' | 'baseline';
-  contents: FlexComponent[];
-  backgroundColor?: string;
-  borderColor?: string;
-  borderWidth?: string;
-  cornerRadius?: string;
-  margin?: string;
-  padding?: string;
-  spacing?: string;
-  flex?: number;
-  action?: Action;
-}
-
-export interface FlexComponent {
-  type: 'text' | 'image' | 'button' | 'separator' | 'spacer' | 'box';
-  [key: string]: any;
-}
-
-export interface FlexCarousel {
-  type: 'carousel';
-  contents: FlexBubble[];
-}
-
-export interface FlexBubbleStyle {
-  header?: FlexBlockStyle;
-  hero?: FlexBlockStyle;
-  body?: FlexBlockStyle;
-  footer?: FlexBlockStyle;
-}
-
-export interface FlexBlockStyle {
-  backgroundColor?: string;
-  separator?: boolean;
-  separatorColor?: string;
-}
-
-export interface TextMessage {
-  type: 'text';
-  text: string;
-  quickReply?: QuickReply;
-}
-
-export interface QuickReply {
-  items: QuickReplyItem[];
-}
-
-export interface QuickReplyItem {
-  type: 'action';
-  action: Action;
-  imageUrl?: string;
-}
-
-export interface Action {
-  type: 'message' | 'uri' | 'postback' | 'datetimepicker';
-  label?: string;
-  text?: string;
-  uri?: string;
-  data?: string;
-  displayText?: string;
-  initial?: string;
-  max?: string;
-  min?: string;
-  mode?: 'date' | 'time' | 'datetime';
-}
+// Import LINE SDK types directly to avoid conflicts
+export type {
+  FlexMessage,
+  FlexBubble,
+  FlexBox,
+  FlexCarousel,
+  FlexComponent,
+  FlexButton,
+  FlexText,
+  FlexImage,
+  FlexSeparator,
+  FlexSpacer,
+  FlexContainer,
+  TextMessage,
+  QuickReply,
+  QuickReplyItem,
+  Action,
+  PostbackAction,
+  MessageAction,
+  URIAction,
+  DatetimePickerAction
+} from '@line/bot-sdk';
 
 // AI & Intelligence Types
 export interface IntentRecognitionResult {

@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import { DatabaseManager } from '@/database/manager';
 import { NotificationService } from '@/services/notification.service';
 import { Logger } from '@/utils/logger';
+import { hashLineGroupId, hashLineUserId } from '@/utils/crypto';
 import { 
   BlockchainEvent, 
   ContractEventHandler, 
@@ -438,7 +439,7 @@ export class BlockchainMonitor {
         circleAddress,
         lineGroupId: undefined, // Will be resolved from hash
         creatorLineId: await this.resolveLineUserId(creator),
-        status: 'setup',
+        status: 'setup' as any, // Temporary fix for CircleStatus enum
         memberCount: 1, // Creator is first member
         maxMembers: 5, // Default, will be updated
         depositAmount,

@@ -5,3 +5,4 @@
 /contracts/node_modules
 /dapp-starter/node_modules
 !README.md
+/linebot/node_modules

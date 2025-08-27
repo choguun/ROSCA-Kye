@@ -216,7 +216,7 @@ export class NotificationService {
 
             const reminderData: DepositReminderData = {
               hoursRemaining: hours,
-              depositAmount: circle.metadata.depositAmount,
+              depositAmount: circle.metadata.depositAmount || circle.depositAmount,
               penalty: penalty.toString(),
               urgency,
               circleAddress,

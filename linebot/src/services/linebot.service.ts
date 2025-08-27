@@ -1,4 +1,4 @@
-import { Client, ClientConfig, WebhookEvent, TextMessage, FlexMessage } from '@line/bot-sdk';
+import { Client, ClientConfig, WebhookEvent, TextMessage, FlexMessage, validateSignature } from '@line/bot-sdk';
 import * as Sentry from '@sentry/node';
 import { Logger } from '@/utils/logger';
 import { LineApiError } from '@/types';
@@ -6,6 +6,7 @@ import { LineApiError } from '@/types';
 export class LineBotService {
   private client: Client;
   private logger: Logger;
+  private channelSecret: string;
 
   constructor(config: { channelAccessToken: string; channelSecret: string }) {
     const clientConfig: ClientConfig = {
@@ -15,6 +16,7 @@ export class LineBotService {
 
     this.client = new Client(clientConfig);
     this.logger = new Logger('LineBotService');
+    this.channelSecret = config.channelSecret;
   }
 
   /**
@@ -48,7 +50,7 @@ export class LineBotService {
 
       throw new LineApiError(
         `Failed to send text message: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        error?.response?.data?.message || 'UNKNOWN_ERROR'
+        (error as any)?.response?.data?.message || 'UNKNOWN_ERROR'
       );
     }
   }
@@ -79,7 +81,7 @@ export class LineBotService {
 
       throw new LineApiError(
         `Failed to send Flex message: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        error?.response?.data?.message || 'UNKNOWN_ERROR'
+        (error as any)?.response?.data?.message || 'UNKNOWN_ERROR'
       );
     }
   }
@@ -109,7 +111,7 @@ export class LineBotService {
 
       throw new LineApiError(
         `Failed to send group message: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        error?.response?.data?.message || 'UNKNOWN_ERROR'
+        (error as any)?.response?.data?.message || 'UNKNOWN_ERROR'
       );
     }
   }
@@ -139,7 +141,7 @@ export class LineBotService {
 
       throw new LineApiError(
         `Failed to reply to event: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        error?.response?.data?.message || 'UNKNOWN_ERROR'
+        (error as any)?.response?.data?.message || 'UNKNOWN_ERROR'
       );
     }
   }
@@ -176,7 +178,7 @@ export class LineBotService {
 
       throw new LineApiError(
         `Failed to get user profile: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        error?.response?.data?.message || 'UNKNOWN_ERROR'
+        (error as any)?.response?.data?.message || 'UNKNOWN_ERROR'
       );
     }
   }
@@ -211,7 +213,7 @@ export class LineBotService {
 
       throw new LineApiError(
         `Failed to get group member profile: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        error?.response?.data?.message || 'UNKNOWN_ERROR'
+        (error as any)?.response?.data?.message || 'UNKNOWN_ERROR'
       );
     }
   }
@@ -241,7 +243,7 @@ export class LineBotService {
 
       throw new LineApiError(
         `Failed to leave group: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        error?.response?.data?.message || 'UNKNOWN_ERROR'
+        (error as any)?.response?.data?.message || 'UNKNOWN_ERROR'
       );
     }
   }
@@ -251,7 +253,7 @@ export class LineBotService {
    */
   validateSignature(body: string, signature: string): boolean {
     try {
-      return this.client.validateSignature(body, signature);
+      return validateSignature(body, this.channelSecret, signature);
     } catch (error) {
       this.logger.error('Failed to validate signature:', error);
       return false;
@@ -295,7 +297,7 @@ export class LineBotService {
 
       throw new LineApiError(
         `Failed to send multiple messages: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        error?.response?.data?.message || 'UNKNOWN_ERROR'
+        (error as any)?.response?.data?.message || 'UNKNOWN_ERROR'
       );
     }
   }
@@ -309,7 +311,7 @@ export class LineBotService {
       return false;
     } catch (error) {
       // If we get a 403 or specific error, user has blocked the bot
-      if (error?.response?.status === 403) {
+      if ((error as any)?.response?.status === 403) {
         return true;
       }
       // For other errors, we can't determine the status
@@ -346,7 +348,7 @@ export class LineBotService {
 
       throw new LineApiError(
         `Failed to get bot info: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        error?.response?.data?.message || 'UNKNOWN_ERROR'
+        (error as any)?.response?.data?.message || 'UNKNOWN_ERROR'
       );
     }
   }
@@ -367,7 +369,7 @@ export class LineBotService {
   // Message validation
   validateMessage(message: TextMessage | FlexMessage): boolean {
     if (message.type === 'text') {
-      return message.text && message.text.length > 0 && message.text.length <= 5000;
+      return !!(message.text && message.text.length > 0 && message.text.length <= 5000);
     }
     
     if (message.type === 'flex') {
@@ -384,7 +386,7 @@ export class LineBotService {
       this.logger.botEvent('rich_menu_linked', { lineUserId, richMenuId });
     } catch (error) {
       this.logger.error('Failed to link rich menu:', error);
-      throw new LineApiError(`Failed to link rich menu: ${error.message}`);
+      throw new LineApiError(`Failed to link rich menu: ${(error as any)?.message || 'Unknown error'}`);
     }
   }
 }

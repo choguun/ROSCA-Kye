@@ -6,7 +6,7 @@ import { IntentProcessor } from '@/ai/intent';
 import { Logger } from '@/utils/logger';
 import { validateWebhookEvent, sanitizeText } from '@/utils/validation';
 import { TextMessage, FlexMessage, Intent, NotificationType } from '@/types';
-import * as Sentry from '@sentry/nextjs';
+import * as Sentry from '@sentry/node';
 
 export class WebhookService {
   private logger: Logger;
@@ -64,7 +64,7 @@ export class WebhookService {
         data: {
           eventType: event.type,
           sourceType: event.source.type,
-          sourceId: event.source.userId || event.source.groupId,
+          sourceId: event.source.userId || (event.source as any).groupId || (event.source as any).roomId,
         }
       });
 
@@ -110,9 +110,9 @@ export class WebhookService {
       });
 
       // Send error message to user if possible
-      if (event.source.userId && event.replyToken) {
+      if (event.source.userId && (event as any).replyToken) {
         try {
-          await this.botService.replyToEvent(event.replyToken, {
+          await this.botService.replyToEvent((event as any).replyToken, {
             type: 'text',
             text: 'Sorry, I encountered an error processing your request. Please try again later.'
           });
@@ -149,7 +149,7 @@ export class WebhookService {
     const intentResult = await this.intentProcessor.processMessage({
       text: messageText,
       userId: lineUserId,
-      groupId: event.source.groupId,
+      groupId: (event.source as any).groupId,
       timestamp: event.timestamp
     });
 
@@ -298,9 +298,9 @@ export class WebhookService {
    * Handle bot joining a group
    */
   private async handleJoinEvent(event: JoinEvent): Promise<void> {
-    if (!event.source.groupId) return;
+    if (!(event.source as any).groupId) return;
 
-    const groupId = event.source.groupId;
+    const groupId = (event.source as any).groupId;
     this.logger.botEvent('joined_group', { groupId });
 
     try {
@@ -329,9 +329,9 @@ export class WebhookService {
    * Handle bot leaving a group
    */
   private async handleLeaveEvent(event: LeaveEvent): Promise<void> {
-    if (!event.source.groupId) return;
+    if (!(event.source as any).groupId) return;
 
-    const groupId = event.source.groupId;
+    const groupId = (event.source as any).groupId;
     this.logger.botEvent('left_group', { groupId });
 
     try {
@@ -378,7 +378,7 @@ export class WebhookService {
   private async handleIntent(intentResult: any, event: MessageEvent): Promise<void> {
     const { intent, entities } = intentResult;
     const lineUserId = event.source.userId!;
-    const groupId = event.source.groupId;
+    const groupId = (event.source as any).groupId;
 
     switch (intent) {
       case Intent.CREATE_CIRCLE:

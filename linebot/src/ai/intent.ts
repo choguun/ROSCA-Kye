@@ -10,7 +10,7 @@ interface MessageContext {
 
 export class IntentProcessor {
   private logger: Logger;
-  private intentPatterns: Map<Intent, RegExp[]>;
+  private intentPatterns!: Map<Intent, RegExp[]>; // Initialized in setupIntentPatterns()
 
   constructor() {
     this.logger = new Logger('IntentProcessor');

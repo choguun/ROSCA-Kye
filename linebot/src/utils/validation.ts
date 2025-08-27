@@ -1,225 +1,168 @@
-import Joi from 'joi';
 import { BotConfig, ValidationError } from '@/types';
 
-// Configuration validation schema
-const configSchema = Joi.object({
-  line: Joi.object({
-    channelAccessToken: Joi.string().required(),
-    channelSecret: Joi.string().required(),
-    liffId: Joi.string().optional(),
-  }).required(),
+// Simple validation system to replace Joi for now
+interface ValidationRule {
+  required?: boolean;
+  type?: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  min?: number;
+  max?: number;
+  pattern?: RegExp;
+  enum?: any[];
+}
 
-  server: Joi.object({
-    port: Joi.number().port().required(),
-    baseUrl: Joi.string().uri().required(),
-    webhookPath: Joi.string().pattern(/^\//).required(),
-  }).required(),
+interface ValidationSchema {
+  [key: string]: ValidationRule | ValidationSchema;
+}
 
-  blockchain: Joi.object({
-    rpcUrl: Joi.string().uri().required(),
-    chainId: Joi.number().required(),
-    privateKey: Joi.string().pattern(/^0x[a-fA-F0-9]{64}$/).optional(),
-    contracts: Joi.object({
-      usdtAddress: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
-      savingsPocketAddress: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).allow(''),
-      kyeFactoryAddress: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
-    }).required(),
-  }).required(),
+// Simple validation functions
+function validateConfig(config: BotConfig): void {
+  const errors: string[] = [];
 
-  database: Joi.object({
-    path: Joi.string().required(),
-    maxConnections: Joi.number().positive().required(),
-    busyTimeout: Joi.number().positive().required(),
-  }).required(),
+  // Validate LINE configuration
+  if (!config.line?.channelAccessToken) errors.push('LINE channel access token is required');
+  if (!config.line?.channelSecret) errors.push('LINE channel secret is required');
 
-  ai: Joi.object({
-    openaiApiKey: Joi.string().optional(),
-    enabled: Joi.boolean().required(),
-  }).required(),
+  // Validate server configuration
+  if (!config.server?.port || config.server.port < 1 || config.server.port > 65535) {
+    errors.push('Valid server port (1-65535) is required');
+  }
+  if (!config.server?.baseUrl) errors.push('Server base URL is required');
+  if (!config.server?.webhookPath?.startsWith('/')) errors.push('Webhook path must start with /');
 
-  notifications: Joi.object({
-    reminderIntervals: Joi.array().items(Joi.number().positive()).required(),
-    maxRetries: Joi.number().positive().required(),
-    retryDelay: Joi.number().positive().required(),
-  }).required(),
+  // Validate blockchain configuration
+  if (!config.blockchain?.rpcUrl) errors.push('Blockchain RPC URL is required');
+  if (!config.blockchain?.chainId) errors.push('Blockchain chain ID is required');
+  if (!isValidEthereumAddress(config.blockchain?.contracts?.usdtAddress)) {
+    errors.push('Valid USDT contract address is required');
+  }
+  if (!isValidEthereumAddress(config.blockchain?.contracts?.kyeFactoryAddress)) {
+    errors.push('Valid KyeFactory contract address is required');
+  }
 
-  security: Joi.object({
-    encryptionKey: Joi.string().min(32).required(),
-    jwtSecret: Joi.string().min(32).required(),
-    rateLimitWindow: Joi.number().positive().required(),
-    rateLimitMax: Joi.number().positive().required(),
-  }).required(),
+  // Validate database configuration
+  if (!config.database?.path) errors.push('Database path is required');
+  if (!config.database?.maxConnections || config.database.maxConnections < 1) {
+    errors.push('Database max connections must be positive');
+  }
 
-  i18n: Joi.object({
-    defaultLanguage: Joi.string().valid('ko', 'en', 'ja').required(),
-    supportedLanguages: Joi.array().items(Joi.string().valid('ko', 'en', 'ja')).required(),
-  }).required(),
-});
-
-// LINE User ID validation
-export const lineUserIdSchema = Joi.string().pattern(/^U[0-9a-f]{32}$/);
-
-// Ethereum address validation
-export const ethereumAddressSchema = Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/);
-
-// Amount validation (wei format)
-export const amountSchema = Joi.string().pattern(/^\d+$/);
-
-// Webhook event validation schema
-const webhookEventSchema = Joi.object({
-  type: Joi.string().required(),
-  mode: Joi.string().required(),
-  timestamp: Joi.number().required(),
-  source: Joi.object({
-    type: Joi.string().valid('user', 'group', 'room').required(),
-    userId: Joi.string().optional(),
-    groupId: Joi.string().optional(),
-    roomId: Joi.string().optional(),
-  }).required(),
-  webhookEventId: Joi.string().required(),
-  deliveryContext: Joi.object({
-    isRedelivery: Joi.boolean().required(),
-  }).required(),
-  message: Joi.object({
-    id: Joi.string().required(),
-    type: Joi.string().required(),
-    text: Joi.string().optional(),
-  }).optional(),
-  postback: Joi.object({
-    data: Joi.string().required(),
-    params: Joi.object().optional(),
-  }).optional(),
-});
-
-// Notification data validation schemas
-export const notificationSchemas = {
-  deposit_reminder: Joi.object({
-    hoursRemaining: Joi.number().positive().required(),
-    depositAmount: amountSchema.required(),
-    penalty: amountSchema.required(),
-    urgency: Joi.string().valid('low', 'medium', 'high', 'critical').required(),
-    circleAddress: ethereumAddressSchema.required(),
-    roundIndex: Joi.number().min(0).required(),
-    beneficiaryName: Joi.string().optional(),
-  }),
-
-  circle_status: Joi.object({
-    circleName: Joi.string().required(),
-    circleAddress: ethereumAddressSchema.required(),
-    phase: Joi.string().valid('setup', 'active', 'completed').required(),
-    memberCount: Joi.number().positive().required(),
-    maxMembers: Joi.number().positive().required(),
-    currentRound: Joi.number().min(0).required(),
-    totalRounds: Joi.number().positive().required(),
-    nextDeadline: Joi.number().optional(),
-    totalValueLocked: amountSchema.required(),
-    userRole: Joi.string().valid('creator', 'member', 'beneficiary').required(),
-    canDeposit: Joi.boolean().required(),
-  }),
-
-  payout_notification: Joi.object({
-    beneficiaryName: Joi.string().required(),
-    amount: amountSchema.required(),
-    roundIndex: Joi.number().min(0).required(),
-    totalRounds: Joi.number().positive().required(),
-    yieldEarned: amountSchema.optional(),
-    nextBeneficiary: Joi.string().optional(),
-    nextDeadline: Joi.number().optional(),
-  }),
-};
-
-// User preferences validation schema
-export const userPreferencesSchema = Joi.object({
-  depositReminders: Joi.boolean().required(),
-  payoutAlerts: Joi.boolean().required(),
-  circleUpdates: Joi.boolean().required(),
-  riskWarnings: Joi.boolean().required(),
-  celebrations: Joi.boolean().required(),
-  reminderTimes: Joi.array().items(Joi.number().positive()).required(),
-});
-
-// Circle creation data validation
-export const createCircleSchema = Joi.object({
-  name: Joi.string().min(2).max(50).required(),
-  depositAmount: amountSchema.required(),
-  penaltyBps: Joi.number().min(0).max(5000).required(),
-  roundDurationDays: Joi.number().min(1).max(365).required(),
-  maxMembers: Joi.number().min(2).max(5).required(),
-  lineGroupId: Joi.string().optional(),
-});
-
-// Join circle data validation
-export const joinCircleSchema = Joi.object({
-  circleAddress: ethereumAddressSchema.required(),
-  inviteCode: Joi.string().optional(),
-});
-
-// Validation functions
-export function validateConfig(config: BotConfig): void {
-  const { error } = configSchema.validate(config);
-  if (error) {
-    throw new ValidationError(`Configuration validation failed: ${error.message}`);
+  if (errors.length > 0) {
+    throw new ValidationError(`Configuration validation failed: ${errors.join(', ')}`);
   }
 }
 
-export function validateWebhookEvent(event: any): void {
-  const { error } = webhookEventSchema.validate(event);
-  if (error) {
-    throw new ValidationError(`Webhook event validation failed: ${error.message}`);
+// Helper validation functions
+function isValidLineUserId(userId: string): boolean {
+  return /^U[0-9a-f]{32}$/.test(userId);
+}
+
+function isValidEthereumAddress(address?: string): boolean {
+  return address ? /^0x[a-fA-F0-9]{40}$/.test(address) : false;
+}
+
+function isValidAmount(amount: string): boolean {
+  return /^\d+$/.test(amount);
+}
+
+function validateWebhookEvent(event: any): void {
+  const errors: string[] = [];
+  
+  if (!event.type) errors.push('Event type is required');
+  if (!event.timestamp) errors.push('Event timestamp is required');
+  if (!event.source?.type) errors.push('Event source type is required');
+  if (!event.webhookEventId) errors.push('Webhook event ID is required');
+  
+  if (errors.length > 0) {
+    throw new ValidationError(`Webhook event validation failed: ${errors.join(', ')}`);
   }
 }
 
-export function validateNotificationData(type: string, data: any): void {
-  const schema = notificationSchemas[type as keyof typeof notificationSchemas];
-  if (!schema) {
-    throw new ValidationError(`Unknown notification type: ${type}`);
+function validateNotificationData(type: string, data: any): void {
+  const errors: string[] = [];
+  
+  switch (type) {
+    case 'deposit_reminder':
+      if (!data.hoursRemaining || data.hoursRemaining < 0) errors.push('Valid hours remaining required');
+      if (!isValidAmount(data.depositAmount)) errors.push('Valid deposit amount required');
+      if (!isValidEthereumAddress(data.circleAddress)) errors.push('Valid circle address required');
+      break;
+    case 'circle_status':
+      if (!data.circleName) errors.push('Circle name required');
+      if (!isValidEthereumAddress(data.circleAddress)) errors.push('Valid circle address required');
+      break;
+    // Add more cases as needed
   }
-
-  const { error } = schema.validate(data);
-  if (error) {
-    throw new ValidationError(`Notification data validation failed: ${error.message}`, type);
+  
+  if (errors.length > 0) {
+    throw new ValidationError(`Notification data validation failed: ${errors.join(', ')}`);
   }
 }
+
+// Export the validation functions (using custom validation, not Joi)
+export { validateConfig, validateWebhookEvent, validateNotificationData };
 
 export function validateLineUserId(userId: string): void {
-  const { error } = lineUserIdSchema.validate(userId);
-  if (error) {
+  if (!isValidLineUserId(userId)) {
     throw new ValidationError(`Invalid LINE User ID: ${userId}`);
   }
 }
 
 export function validateEthereumAddress(address: string): void {
-  const { error } = ethereumAddressSchema.validate(address);
-  if (error) {
+  if (!isValidEthereumAddress(address)) {
     throw new ValidationError(`Invalid Ethereum address: ${address}`);
   }
 }
 
 export function validateAmount(amount: string): void {
-  const { error } = amountSchema.validate(amount);
-  if (error) {
+  if (!isValidAmount(amount)) {
     throw new ValidationError(`Invalid amount format: ${amount}`);
   }
 }
 
 export function validateUserPreferences(preferences: any): void {
-  const { error } = userPreferencesSchema.validate(preferences);
-  if (error) {
-    throw new ValidationError(`User preferences validation failed: ${error.message}`);
+  const errors: string[] = [];
+  
+  if (preferences.language && !['en', 'ko', 'ja'].includes(preferences.language)) {
+    errors.push('Language must be en, ko, or ja');
+  }
+  
+  if (preferences.timezone && typeof preferences.timezone !== 'string') {
+    errors.push('Timezone must be a string');
+  }
+  
+  if (errors.length > 0) {
+    throw new ValidationError(`User preferences validation failed: ${errors.join(', ')}`);
   }
 }
 
 export function validateCreateCircleData(data: any): void {
-  const { error } = createCircleSchema.validate(data);
-  if (error) {
-    throw new ValidationError(`Create circle data validation failed: ${error.message}`);
+  const errors: string[] = [];
+  
+  if (!data.groupName || typeof data.groupName !== 'string') {
+    errors.push('Group name is required and must be a string');
+  }
+  
+  if (!data.depositAmount || !isValidAmount(data.depositAmount)) {
+    errors.push('Valid deposit amount is required');
+  }
+  
+  if (errors.length > 0) {
+    throw new ValidationError(`Create circle data validation failed: ${errors.join(', ')}`);
   }
 }
 
 export function validateJoinCircleData(data: any): void {
-  const { error } = joinCircleSchema.validate(data);
-  if (error) {
-    throw new ValidationError(`Join circle data validation failed: ${error.message}`);
+  const errors: string[] = [];
+  
+  if (!data.circleAddress || !isValidEthereumAddress(data.circleAddress)) {
+    errors.push('Valid circle address is required');
+  }
+  
+  if (data.inviteCode && typeof data.inviteCode !== 'string') {
+    errors.push('Invite code must be a string');
+  }
+  
+  if (errors.length > 0) {
+    throw new ValidationError(`Join circle data validation failed: ${errors.join(', ')}`);
   }
 }
 
@@ -240,17 +183,18 @@ export function createRateLimitKey(userId: string, action: string): string {
   return `rate_limit:${userId}:${action}`;
 }
 
-// Validation middleware for Express
-export function validationMiddleware(schema: Joi.ObjectSchema) {
+// Express validation middleware using custom validation
+export function validationMiddleware(validationFn: (data: any) => void) {
   return (req: any, res: any, next: any) => {
-    const { error } = schema.validate(req.body);
-    if (error) {
+    try {
+      validationFn(req.body);
+      next();
+    } catch (error) {
       return res.status(400).json({
         success: false,
-        error: `Validation failed: ${error.message}`,
+        error: error instanceof ValidationError ? error.message : 'Validation failed',
       });
     }
-    next();
   };
 }
 

@@ -23,11 +23,11 @@ class LineBotServer {
   private app: express.Application;
   private config: BotConfig;
   private logger: Logger;
-  private webhookService: WebhookService;
-  private botService: LineBotService;
-  private notificationService: NotificationService;
-  private blockchainMonitor: BlockchainMonitor;
-  private databaseManager: DatabaseManager;
+  private webhookService!: WebhookService; // Initialized in initializeServices()
+  private botService!: LineBotService; // Initialized in initializeServices()
+  private notificationService!: NotificationService; // Initialized in initializeServices()
+  private blockchainMonitor!: BlockchainMonitor; // Initialized in initializeServices()
+  private databaseManager!: DatabaseManager; // Initialized in initializeServices()
 
   constructor() {
     this.app = express();
@@ -284,7 +284,7 @@ class LineBotServer {
 
     // Handle unhandled promise rejections
     process.on('unhandledRejection', (reason, promise) => {
-      this.logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+      this.logger.error('Unhandled Rejection at promise, reason:', { promise, reason });
       Sentry.captureException(new Error(`Unhandled Rejection: ${reason}`));
     });
   }

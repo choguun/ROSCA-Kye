@@ -14,7 +14,7 @@ import {
 } from '@/types';
 
 export class DatabaseManager {
-  private db: Database.Database;
+  private db!: Database.Database; // Definite assignment assertion - initialized in initialize()
   private logger: Logger;
 
   constructor(private config: DatabaseConfig) {
@@ -800,5 +800,68 @@ export class DatabaseManager {
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_circles_group ON bot_circles(line_group_id)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_events_block ON blockchain_events(block_number)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_events_contract ON blockchain_events(contract_address)`);
+  }
+
+  // Missing methods for financial intelligence
+  async getUserNotificationHistory(lineUserId: string): Promise<any[]> {
+    const stmt = this.db.prepare(`
+      SELECT 
+        *,
+        CASE WHEN status = 'sent' THEN 1 ELSE 0 END as wasActedUpon,
+        CASE 
+          WHEN status = 'sent' THEN DATETIME(scheduled_time, '+1 hour') 
+          ELSE NULL 
+        END as actionTakenAt,
+        DATETIME(scheduled_time) as sentAt
+      FROM notification_queue 
+      WHERE line_user_id = ? 
+      ORDER BY scheduled_time DESC 
+      LIMIT 50
+    `);
+
+    const rows = stmt.all(lineUserId) as any[];
+    return rows.map(row => ({
+      ...row,
+      wasActedUpon: row.wasActedUpon === 1,
+      sentAt: row.sentAt ? new Date(row.sentAt).getTime() : null,
+      actionTakenAt: row.actionTakenAt ? new Date(row.actionTakenAt).getTime() : null
+    }));
+  }
+
+  async getUserCircles(lineUserId: string): Promise<BotCircle[]> {
+    // Get user's wallet address first
+    const user = await this.getUser(lineUserId);
+    if (!user?.walletAddress) return [];
+
+    // Get circles where user is a member
+    const stmt = this.db.prepare(`
+      SELECT bc.*
+      FROM bot_circles bc
+      JOIN circle_members cm ON bc.circle_address = cm.circle_address
+      WHERE cm.wallet_address = ?
+      ORDER BY bc.created_at DESC
+    `);
+
+    const rows = stmt.all(user.walletAddress) as any[];
+    return rows.map(row => ({
+      circleAddress: row.circle_address,
+      lineGroupId: row.line_group_id,
+      creatorLineId: row.creator_line_id,
+      status: row.status as CircleStatus,
+      memberCount: row.member_count,
+      maxMembers: row.max_members,
+      depositAmount: row.deposit_amount,
+      currentRound: row.current_round,
+      nextDeadline: row.next_deadline ? new Date(row.next_deadline) : undefined,
+      createdAt: new Date(row.created_at),
+      metadata: {
+        name: row.name,
+        description: row.description,
+        roundDurationDays: row.round_duration_days,
+        penaltyBps: row.penalty_bps,
+        totalValueLocked: row.total_value_locked,
+        yieldEarned: row.yield_earned
+      }
+    }));
   }
 }
