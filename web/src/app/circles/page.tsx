@@ -1136,31 +1136,31 @@ ${circle.phase === 'Setup' ?
                                 </p>
 
                                 <div className={styles.tokenRequirements}>
-                                    <div className={`${styles.tokenItem} ${parseFloat(kaiaBalance) > 0 ? styles.sufficient : styles.insufficient}`}>
+                                    <div className={`${styles.tokenItem} ${kaiaBalance === 'Error' ? styles.insufficient : (parseFloat(kaiaBalance) > 0 ? styles.sufficient : styles.insufficient)}`}>
                                         <div className={styles.tokenIcon}>💎</div>
                                         <div className={styles.tokenInfo}>
                                             <div className={styles.tokenName}>Kaia (KAIA)</div>
                                             <div className={styles.tokenPurpose}>For transaction fees</div>
                                             <div className={styles.tokenBalance}>
-                                                Balance: {parseFloat(kaiaBalance).toFixed(4)} KAIA
+                                                Balance: {kaiaBalance === 'Error' ? 'Unable to fetch' : `${parseFloat(kaiaBalance).toFixed(4)} KAIA`}
                                             </div>
                                         </div>
                                         <div className={styles.statusIcon}>
-                                            {parseFloat(kaiaBalance) > 0 ? '✅' : '❌'}
+                                            {kaiaBalance === 'Error' ? '⚠️' : (parseFloat(kaiaBalance) > 0 ? '✅' : '❌')}
                                         </div>
                                     </div>
 
-                                    <div className={`${styles.tokenItem} ${parseFloat(usdtBalance) > 0 ? styles.sufficient : styles.insufficient}`}>
+                                    <div className={`${styles.tokenItem} ${usdtBalance === 'Error' ? styles.insufficient : (parseFloat(usdtBalance) > 0 ? styles.sufficient : styles.insufficient)}`}>
                                         <div className={styles.tokenIcon}>💵</div>
                                         <div className={styles.tokenInfo}>
                                             <div className={styles.tokenName}>Mock USDT</div>
                                             <div className={styles.tokenPurpose}>For circle deposits</div>
                                             <div className={styles.tokenBalance}>
-                                                Balance: {parseFloat(usdtBalance).toFixed(2)} USDT
+                                                Balance: {usdtBalance === 'Error' ? 'Unable to fetch' : `${parseFloat(usdtBalance).toFixed(2)} USDT`}
                                             </div>
                                         </div>
                                         <div className={styles.statusIcon}>
-                                            {parseFloat(usdtBalance) > 0 ? '✅' : '❌'}
+                                            {usdtBalance === 'Error' ? '⚠️' : (parseFloat(usdtBalance) > 0 ? '✅' : '❌')}
                                         </div>
                                     </div>
                                 </div>
