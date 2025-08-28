@@ -21,8 +21,8 @@ export default function Circles() {
     const [joining, setJoining] = useState(false);
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [isMounted, setIsMounted] = useState(false);
-    const [myCircles, setMyCircles] = useState([]);
-    const [selectedCircle, setSelectedCircle] = useState(null);
+    const [myCircles, setMyCircles] = useState<any[]>([]);
+    const [selectedCircle, setSelectedCircle] = useState<any>(null);
     const [showCircleDetails, setShowCircleDetails] = useState(false);
     
     // Balance detection states
@@ -410,6 +410,60 @@ export default function Circles() {
         checkBalances();
     }, [account, isMounted, addresses, balanceChecked]);
 
+    // Manual refresh functions for balances and circle data
+    const refreshBalances = useCallback(async () => {
+        if (!account) return;
+
+        setBalanceLoading(true);
+        console.log('🔄 Manually refreshing balances...');
+        
+        try {
+            // Check Kaia native token balance
+            const kaiaBalanceWei = await getBalance([account, 'latest']);
+            const kaiaBalanceEth = (parseInt(kaiaBalanceWei as string, 16) / 1e18).toFixed(4);
+            setKaiaBalance(kaiaBalanceEth);
+            console.log('✅ Refreshed Kaia Balance:', kaiaBalanceEth, 'KAIA');
+
+            // Check USDT balance
+            if (addresses?.MockUSDT) {
+                const usdtBalanceWei = await getErc20TokenBalance(addresses.MockUSDT, account);
+                const usdtBalanceFormatted = (parseInt(usdtBalanceWei as string, 16) / 1e6).toFixed(2);
+                setUsdtBalance(usdtBalanceFormatted);
+                console.log('✅ Refreshed USDT Balance:', usdtBalanceFormatted, 'USDT');
+            }
+        } catch (error) {
+            console.error('❌ Error refreshing balances:', error);
+            setKaiaBalance('Error');
+            setUsdtBalance('Error');
+        } finally {
+            setBalanceLoading(false);
+        }
+    }, [account, addresses, getBalance, getErc20TokenBalance]);
+
+    const refreshCircleData = useCallback(async (circleAddress: string) => {
+        console.log('🔄 Refreshing circle data for:', circleAddress);
+        
+        try {
+            const updatedCircles = myCircles.map(circle => {
+                if (circle.address?.toLowerCase() === circleAddress.toLowerCase()) {
+                    return {
+                        ...circle,
+                        needsDataFetch: true, // Mark as needing refresh
+                        phase: 'Refreshing...', // Show loading state
+                        memberCount: 'Loading...',
+                        depositAmount: 'Loading...'
+                    };
+                }
+                return circle;
+            });
+            setMyCircles(updatedCircles);
+            
+            console.log('✅ Circle data refresh initiated - will be handled by useEffect');
+        } catch (error) {
+            console.error('❌ Error refreshing circle data:', error);
+        }
+    }, [myCircles, setMyCircles]);
+
     // Fetch current APY from SavingsPocket
     useEffect(() => {
         if (!isMounted || !addresses?.SavingsPocket) return;
@@ -606,7 +660,8 @@ export default function Circles() {
 
         const confirmed = window.confirm(
             'Make a deposit to this circle?\n\n' +
-            'This will transfer your monthly amount from your wallet to the circle contract.'
+            'This will transfer your monthly amount from your wallet to the circle contract.\n\n' +
+            'IMPORTANT: Make sure you have joined this circle first! If you are not a member, the deposit will fail.'
         );
 
         if (!confirmed) return;
@@ -621,13 +676,15 @@ export default function Circles() {
             if (result.success) {
                 alert(`✅ Deposit successful!\n\nTransaction Hash: ${result.hash}\n\nYour contribution has been added to the circle.`);
                 
-                // Refresh the circle data to show updated status
-                const circleIndex = myCircles.findIndex(circle => 
-                    circle.address?.toLowerCase() === circleAddress.toLowerCase()
-                );
-                if (circleIndex !== -1) {
-                    await handleRefreshCircle(myCircles[circleIndex], circleIndex);
-                }
+                console.log('🔄 Starting post-deposit refresh...');
+                
+                // Refresh USDT balance to show reduced balance
+                await refreshBalances();
+                
+                // Refresh the circle data to show updated member counts and status
+                await refreshCircleData(circleAddress);
+                
+                console.log('✅ Post-deposit refresh completed');
             } else {
                 throw new Error(result.error || 'Failed to make deposit');
             }
@@ -650,7 +707,7 @@ export default function Circles() {
             
             alert(errorMessage);
         }
-    }, [account, makeDeposit, myCircles, handleRefreshCircle]);
+    }, [account, makeDeposit, refreshBalances, refreshCircleData]);
 
     const fallbackCopyToClipboard = useCallback((text, label) => {
         try {
@@ -1591,12 +1648,25 @@ ${circle.phase === 'Setup' ?
                                 <div className={styles.memberSection}>
                                     <h3>Member Actions</h3>
                                     <div className={styles.memberActions}>
-                                        <button 
-                                            className={styles.viewButton}
-                                            onClick={() => handleMakeDeposit(selectedCircle.address)}
-                                        >
-                                            💰 Make Deposit
-                                        </button>
+                                        {!selectedCircle.isJoined ? (
+                                            <button 
+                                                className={styles.createButton}
+                                                onClick={() => {
+                                                    setInviteCode(selectedCircle.address);
+                                                    handleJoinClick();
+                                                }}
+                                                style={{ backgroundColor: '#10b981' }}
+                                            >
+                                                👥 Join Circle First
+                                            </button>
+                                        ) : (
+                                            <button 
+                                                className={styles.viewButton}
+                                                onClick={() => handleMakeDeposit(selectedCircle.address)}
+                                            >
+                                                💰 Make Deposit
+                                            </button>
+                                        )}
                                         <button className={styles.inviteButton}>
                                             📊 View Progress
                                         </button>
@@ -1610,6 +1680,25 @@ ${circle.phase === 'Setup' ?
                 <div className={styles.myCircles}>
                     <div className={styles.circlesHeader}>
                         <h2>My Circles {autoRefreshing && <span style={{ fontSize: '14px', color: '#f59e0b' }}>🔄 Auto-refreshing...</span>}</h2>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                                onClick={refreshBalances}
+                                disabled={balanceLoading}
+                                style={{
+                                    backgroundColor: '#10b981',
+                                    color: '#fff',
+                                    border: 'none',
+                                    padding: '6px 12px',
+                                    borderRadius: '6px',
+                                    fontSize: '0.875rem',
+                                    cursor: balanceLoading ? 'not-allowed' : 'pointer',
+                                    opacity: balanceLoading ? 0.6 : 1
+                                }}
+                                title="Refresh wallet balances (KAIA & USDT)"
+                            >
+                                {balanceLoading ? '🔄' : '💰'} Refresh Balances
+                            </button>
+                        </div>
                     </div>
                     <div className={styles.circlesList}>
                         {myCircles.length === 0 ? (

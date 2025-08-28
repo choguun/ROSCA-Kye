@@ -578,11 +578,63 @@ export const useKyeContracts = () => {
         throw new Error(`Insufficient USDT balance. Required: ${requiredUsdt} USDT, Available: ${usdtBalance} USDT`);
       }
 
+      // Step 0.5: Verify circle contract exists and get actual deposit amount
+      console.log('🔍 Step 0.5: Verifying circle contract exists...');
+      
+      // Check if contract exists at address
+      const contractCode = await provider.getCode(circleAddress);
+      console.log('Contract code at address:', contractCode);
+      
+      if (contractCode === '0x') {
+        throw new Error(`No contract found at address ${circleAddress}. The circle might not be deployed yet.`);
+      }
+      
+      console.log('✅ Circle contract exists');
+      
+      // Step 0.7: Verify user is a member of the circle
+      console.log('🔍 Step 0.7: Verifying user is a member of the circle...');
+      
+      try {
+        const memberCount = await circleContract.memberCount();
+        console.log('Circle member count:', memberCount.toString());
+        
+        // Check if user is in the members list
+        let isMember = false;
+        for (let i = 0; i < memberCount; i++) {
+          const memberAddress = await circleContract.members(i);
+          console.log(`Member ${i}:`, memberAddress);
+          if (memberAddress.toLowerCase() === account.toLowerCase()) {
+            isMember = true;
+            console.log(`✅ User is member #${i}`);
+            break;
+          }
+        }
+        
+        if (!isMember) {
+          throw new Error(`You are not a member of this circle. Please join the circle first before making a deposit.`);
+        }
+        
+        // Also check member state
+        const memberState = await circleContract.memberStates(account);
+        console.log('Member state:', {
+          wallet: memberState.wallet,
+          lineUserIdHash: memberState.lineUserIdHash,
+          totalDeposited: memberState.totalDeposited.toString(),
+          hasDefaulted: memberState.hasDefaulted
+        });
+        
+      } catch (memberError) {
+        console.error('Error checking membership:', memberError);
+        throw new Error(`Could not verify circle membership: ${memberError.message}`);
+      }
+
       // Step 1: Approve USDT spending
       console.log('📤 Step 1: Approving USDT spending...');
-      const usdtInterface = new ethers.Interface(MOCK_USDT_ABI);
+      console.log('- Approving spender (circle):', circleAddress);
+      console.log('- Approving amount (wei):', depositAmount.toString());
+      console.log('- Approving amount (USDT):', Number(depositAmount) / 1e6);
       
-      // Ensure depositAmount is properly formatted for the approval
+      const usdtInterface = new ethers.Interface(MOCK_USDT_ABI);
       const approveData = usdtInterface.encodeFunctionData('approve', [circleAddress, depositAmount.toString()]);
       
       const approveTx = {
@@ -596,9 +648,24 @@ export const useKyeContracts = () => {
       console.log('Approval transaction:', approveTx);
       const approveResult = await sendTransaction(approveTx);
       console.log('✅ USDT approval successful:', approveResult);
+      
+      // Step 1.5: Verify approval worked
+      console.log('🔍 Step 1.5: Verifying approval...');
+      const usdtContract = new ethers.Contract(addresses.MockUSDT, MOCK_USDT_ABI, provider);
+      const allowance = await usdtContract.allowance(account, circleAddress);
+      console.log('Current allowance:', allowance.toString(), 'wei');
+      console.log('Current allowance (USDT):', Number(allowance) / 1e6);
+      
+      if (allowance < depositAmount) {
+        throw new Error(`Approval failed! Required: ${Number(depositAmount) / 1e6} USDT, Approved: ${Number(allowance) / 1e6} USDT`);
+      }
+      console.log('✅ Approval verified successfully');
 
       // Step 2: Make deposit to circle
       console.log('📤 Step 2: Making deposit to circle...');
+      console.log('- Circle contract address:', circleAddress);
+      console.log('- User account:', account);
+      
       const circleInterface = new ethers.Interface(KYE_GROUP_ABI);
       const depositData = circleInterface.encodeFunctionData('deposit', []);
 
@@ -612,7 +679,46 @@ export const useKyeContracts = () => {
 
       console.log('Deposit transaction:', depositTx);
       const result = await sendTransaction(depositTx);
-      console.log('✅ Deposit successful:', result);
+      console.log('✅ Deposit transaction sent:', result);
+      
+      // Step 2.5: Verify the deposit actually happened by checking balances
+      console.log('🔍 Step 2.5: Verifying deposit was processed...');
+      
+      // Wait a moment for transaction to be processed
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      try {
+        // Check USDT balance after deposit
+        const newUsdtBalanceRaw = await getErc20TokenBalance(addresses.MockUSDT, account);
+        let newUsdtBalance;
+        
+        if (newUsdtBalanceRaw && newUsdtBalanceRaw.startsWith('0x')) {
+          const balanceWei = BigInt(newUsdtBalanceRaw);
+          newUsdtBalance = Number(balanceWei) / 1e6;
+        } else {
+          newUsdtBalance = parseFloat(newUsdtBalanceRaw || '0');
+        }
+        
+        console.log('USDT balance after deposit:', newUsdtBalance, 'USDT');
+        console.log('Expected reduction:', Number(depositAmount) / 1e6, 'USDT');
+        
+        // Check if balance actually decreased
+        const originalBalance = parseFloat(usdtBalance);
+        const expectedBalance = originalBalance - (Number(depositAmount) / 1e6);
+        console.log('Original balance:', originalBalance, 'USDT');
+        console.log('Expected new balance:', expectedBalance, 'USDT');
+        console.log('Actual new balance:', newUsdtBalance, 'USDT');
+        
+        if (Math.abs(newUsdtBalance - expectedBalance) > 0.01) {
+          console.warn('⚠️ WARNING: USDT balance did not decrease as expected!');
+          console.warn('This might indicate the deposit transaction failed silently.');
+        } else {
+          console.log('✅ USDT balance decreased correctly - deposit was successful');
+        }
+        
+      } catch (verificationError) {
+        console.warn('⚠️ Could not verify deposit success:', verificationError);
+      }
 
       Sentry.addBreadcrumb({
         message: 'Deposit completed successfully',
@@ -620,6 +726,10 @@ export const useKyeContracts = () => {
         level: 'info',
         data: { transactionHash: result }
       });
+
+      // Wait a bit for the transaction to be mined and the balance to update
+      console.log('⏳ Waiting 3 seconds for transaction to be processed...');
+      await new Promise(resolve => setTimeout(resolve, 3000));
 
       console.log('=== MAKE DEPOSIT SUCCESS ===');
       return {
