@@ -9,11 +9,11 @@ const getContractAddressesFromEnv = () => {
 
   // Fallback addresses for different networks
   const fallbackAddresses = {
-    // Kaia Kairos Testnet (Chain ID: 1001) - Latest deployment with creator auto-membership fix
+    // Kaia Kairos Testnet (Chain ID: 1001) - FIXED deployment with penalty calculation bug resolved  
     1001: {
-      MockUSDT: '0xE5349B2c9feC6cc99500D4333244DC79c8f2C943',
-      SavingsPocket: '0xCfAbE6786bA807b9f6388fB692d080F3d488Aa99',
-      KyeFactory: '0xF0B8a48Ca9549dA069FA8E112c14B743F00D58C3',
+      MockUSDT: '0x42B129D75B05eDdBDE1439d1C2A6D3489A9F050B',
+      SavingsPocket: '0x1f76BA034c0044D84FEBF707844234fa08B725b4', 
+      KyeFactory: '0x26a4a9D5fE0EfE478E7BD7980BD8651C496aE857',
     },
     // Local Anvil (Chain ID: 31337) - Updated with fixed contracts
     31337: {

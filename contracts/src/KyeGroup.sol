@@ -327,8 +327,12 @@ contract KyeGroup {
             return basePenalty;
         }
         
-        // Escalating penalty: 2^(defaultCount-1) * basePenalty
-        uint256 escalation = basePenalty.mul(2 ** state.defaultCount);
+        // FIXED: Safe escalating penalty with capped exponential growth
+        // Cap the exponent to prevent massive penalties (max 4 means 2^4 = 16x penalty)
+        uint256 cappedExponent = state.defaultCount > 4 ? 4 : state.defaultCount;
+        uint256 escalation = basePenalty.mul(2 ** cappedExponent);
+        
+        // Apply 50% cap as final safety check
         uint256 maxPenalty = depositAmount.div(2); // 50% cap
         
         return escalation > maxPenalty ? maxPenalty : escalation;

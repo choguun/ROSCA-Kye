@@ -19,15 +19,15 @@ contract DeployScript is Script {
         SavingsPocket savingsPocket = new SavingsPocket(address(usdt));
         console.log("SavingsPocket deployed at:", address(savingsPocket));
 
-        // Add some sponsor funds to SavingsPocket for yield generation (1000 USDT)
-        uint256 sponsorAmount = 1000 * 10**6;
-        usdt.mint(msg.sender, sponsorAmount);
-        usdt.approve(address(savingsPocket), sponsorAmount);
-        savingsPocket.addSponsorFunds(sponsorAmount);
-        console.log("Added sponsor funds:", sponsorAmount);
+        // DISABLED: Don't add sponsor funds - causes yield calculation bug
+        // uint256 sponsorAmount = 1000 * 10**6;
+        // usdt.mint(msg.sender, sponsorAmount);
+        // usdt.approve(address(savingsPocket), sponsorAmount);
+        // savingsPocket.addSponsorFunds(sponsorAmount);
+        // console.log("Added sponsor funds:", sponsorAmount);
 
-        // Deploy KyeFactory
-        KyeFactory factory = new KyeFactory(address(usdt), address(savingsPocket));
+        // Deploy KyeFactory - DISABLED YIELD ADAPTER to fix sponsor funds bug
+        KyeFactory factory = new KyeFactory(address(usdt), address(0));
         console.log("KyeFactory deployed at:", address(factory));
 
         vm.stopBroadcast();

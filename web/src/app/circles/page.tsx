@@ -27,6 +27,8 @@ export default function Circles() {
     const [showProgressModal, setShowProgressModal] = useState(false);
     const [progressData, setProgressData] = useState<any>(null);
     const [loadingProgress, setLoadingProgress] = useState(false);
+    const [userIsBeneficiary, setUserIsBeneficiary] = useState(false);
+    const [checkingBeneficiary, setCheckingBeneficiary] = useState(false);
     
     // Balance detection states
     const [showBalanceModal, setShowBalanceModal] = useState(false);
@@ -843,20 +845,14 @@ export default function Circles() {
         } catch (error) {
             console.error('❌ Error making deposit:', error);
             
-            let errorMessage = 'Failed to make deposit';
+            let errorMessage = 'Failed to make deposit - Check console for details';
             if (error instanceof Error) {
-                if (error.message.includes('network') || error.message.includes('Network')) {
-                    errorMessage = `Network Error: ${error.message}\n\nTry switching to Kaia Kairos Testnet manually in your wallet.`;
-                } else if (error?.code === 4001) {
-                    errorMessage = 'Transaction rejected by user';
-                } else if (error?.code === -32603) {
-                    errorMessage = `Contract Error: ${error.message}\n\nCheck network and contract addresses.`;
-                } else {
-                    errorMessage = `Error: ${error.message}`;
-                }
+                // The makeDeposit hook now provides comprehensive error messages
+                errorMessage = error.message;
             }
             
-            alert(errorMessage);
+            // Show user-friendly error message with helpful tips
+            alert(`❌ Deposit Failed\n\n${errorMessage}\n\n💡 Common Solutions:\n• Wait for circle to have enough members (5 total)\n• Check you're not the current beneficiary\n• Verify you haven't deposited this round already\n• Ensure sufficient USDT balance\n• Try refreshing the page and trying again`);
         }
     }, [account, makeDeposit, refreshBalances, refreshCircleData]);
 
@@ -979,9 +975,9 @@ export default function Circles() {
             // Get user's personal stats
             const userMemberState = await circleContract.getMemberState(account);
             const userStats = {
-                totalDeposited: Number(userMemberState.totalDeposited),
-                totalReceived: Number(userMemberState.totalReceived),
-                penaltiesAccrued: Number(userMemberState.penaltiesAccrued),
+                totalDeposited: Number(userMemberState.totalDeposited) / 1e6, // Convert from wei to USDT
+                totalReceived: Number(userMemberState.totalReceived) / 1e6, // Convert from wei to USDT
+                penaltiesAccrued: Number(userMemberState.penaltiesAccrued) / 1e6, // Convert from wei to USDT
                 gracePeriodsUsed: Number(userMemberState.gracePeriodsUsed),
                 gracePeriodsRemaining: 1 - Number(userMemberState.gracePeriodsUsed),
                 defaultCount: Number(userMemberState.defaultCount),
@@ -1005,20 +1001,20 @@ export default function Circles() {
                 circleAddress,
                 currentRound: Number(currentRound),
                 maxMembers: Number(maxMembers),
-                depositAmount: Number(depositAmount),
+                depositAmount: Number(depositAmount) / 1e6, // Convert from wei to USDT (6 decimals)
                 penaltyBps: Number(penaltyBps),
                 roundDuration: Number(roundDuration),
                 phase: Number(phase),
                 currentPhase,
-                clubPool: Number(clubPool),
-                totalYieldAccrued: Number(totalYieldAccrued),
+                clubPool: Number(clubPool) / 1e6, // Convert from wei to USDT
+                totalYieldAccrued: Number(totalYieldAccrued) / 1e6, // Convert from wei to USDT
                 memberCount: Number(memberCount),
                 members,
                 currentRoundData: currentRoundData ? {
                     deadline: Number(currentRoundData.deadline),
                     beneficiary: currentRoundData.beneficiary,
-                    totalDeposited: Number(currentRoundData.totalDeposited),
-                    yieldAccrued: Number(currentRoundData.yieldAccrued),
+                    totalDeposited: Number(currentRoundData.totalDeposited) / 1e6, // Convert from wei to USDT
+                    yieldAccrued: Number(currentRoundData.yieldAccrued) / 1e6, // Convert from wei to USDT
                     isComplete: currentRoundData.isComplete,
                     requiredDeposits: Number(currentRoundData.requiredDeposits)
                 } : null,
@@ -1044,6 +1040,72 @@ export default function Circles() {
             setLoadingProgress(false);
         }
     }, [account, sdk, selectedCircle]);
+
+    // Check if current user is the beneficiary for the selected circle's current round
+    const checkIfUserIsBeneficiary = useCallback(async (circleAddress: string) => {
+        if (!account || !circleAddress || circleAddress === 'pending' || !sdk) {
+            setUserIsBeneficiary(false);
+            return;
+        }
+
+        try {
+            setCheckingBeneficiary(true);
+            console.log('🔍 Checking if user is beneficiary for circle:', circleAddress);
+            
+            const { ethers } = await import('ethers');
+            const { KYE_GROUP_ABI } = await import('@/utils/contracts/abis');
+            
+            const walletProvider = sdk.getWalletProvider();
+            const provider = new ethers.BrowserProvider(walletProvider);
+            const circleContract = new ethers.Contract(circleAddress, KYE_GROUP_ABI, provider);
+
+            const [currentRound, maxMembers, currentPhase] = await Promise.all([
+                circleContract.currentRound(),
+                circleContract.maxMembers(),
+                circleContract.currentPhase()
+            ]);
+
+            console.log('Beneficiary check - Contract state:', {
+                currentRound: Number(currentRound),
+                maxMembers: Number(maxMembers),
+                currentPhase: Number(currentPhase)
+            });
+
+            // Only check beneficiary status if circle is active and has active rounds
+            if (Number(currentPhase) === 2 && Number(currentRound) < Number(maxMembers)) { // Phase.Active = 2
+                const roundState = await circleContract.getRoundState(currentRound);
+                const beneficiaryAddress = roundState.beneficiary.toLowerCase();
+                const userAddress = account.toLowerCase();
+                const isBeneficiary = beneficiaryAddress === userAddress;
+
+                console.log('Beneficiary check result:', {
+                    beneficiaryAddress,
+                    userAddress,
+                    isBeneficiary
+                });
+
+                setUserIsBeneficiary(isBeneficiary);
+            } else {
+                console.log('Circle not in active phase or no active rounds');
+                setUserIsBeneficiary(false);
+            }
+        } catch (error) {
+            console.error('❌ Error checking beneficiary status:', error);
+            setUserIsBeneficiary(false);
+        } finally {
+            setCheckingBeneficiary(false);
+        }
+    }, [account, sdk]);
+
+    // Check beneficiary status whenever selectedCircle changes
+    useEffect(() => {
+        if (selectedCircle && selectedCircle.address && selectedCircle.address !== 'pending') {
+            console.log('🔍 Selected circle changed, checking beneficiary status for:', selectedCircle.address);
+            checkIfUserIsBeneficiary(selectedCircle.address);
+        } else {
+            setUserIsBeneficiary(false);
+        }
+    }, [selectedCircle, checkIfUserIsBeneficiary]);
 
     const fallbackCopyToClipboard = useCallback((text, label) => {
         try {
@@ -1427,12 +1489,11 @@ ${circle.phase === 'Setup' ?
                 throw new Error(`Wrong network! Current: ${currentChainId}, Expected: ${process.env.NEXT_PUBLIC_CHAIN_ID}`);
             }
 
-            // Convert amount to proper format (USDT has 6 decimals)
-            const amountInUSDT = (parseFloat(monthlyAmount) * 1e6).toString();
-            console.log('Amount in USDT (wei):', amountInUSDT);
+            // FIXED: Pass amount directly - useKyeContracts hook handles conversion properly
+            console.log('Amount in USDT:', monthlyAmount);
 
             // Call the actual smart contract
-            const result = await createCircle(circleName, amountInUSDT, penaltyBps, roundDurationDays, maxMembers);
+            const result = await createCircle(circleName, monthlyAmount, penaltyBps, roundDurationDays, maxMembers);
             console.log('✅ Circle created successfully:', result);
 
             if (result.success) {
@@ -2112,7 +2173,22 @@ ${circle.phase === 'Setup' ?
                                                 </div>
                                                 
                                                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                                    {selectedCircle.phase === 'Active' && (
+                                                    {/* Show appropriate action based on circle phase and beneficiary status */}
+                                                    {selectedCircle.phase === 'Active' && userIsBeneficiary && (
+                                                        <div style={{ 
+                                                            padding: '10px 14px',
+                                                            backgroundColor: '#f0f9ff',
+                                                            border: '2px solid #0ea5e9',
+                                                            borderRadius: '8px',
+                                                            fontSize: '13px',
+                                                            color: '#0369a1',
+                                                            fontWeight: '500'
+                                                        }}>
+                                                            🎉 You're the recipient this round! Wait for others to deposit, then you'll receive the payout automatically.
+                                                        </div>
+                                                    )}
+                                                    
+                                                    {selectedCircle.phase === 'Active' && !userIsBeneficiary && !checkingBeneficiary && (
                                                         <button 
                                                             className={styles.createButton}
                                                             onClick={() => handleMakeDeposit(selectedCircle.address)}
@@ -2120,6 +2196,18 @@ ${circle.phase === 'Setup' ?
                                                         >
                                                             💰 Make Deposit
                                                         </button>
+                                                    )}
+
+                                                    {selectedCircle.phase === 'Active' && checkingBeneficiary && (
+                                                        <div style={{ 
+                                                            padding: '8px 12px',
+                                                            backgroundColor: '#f3f4f6',
+                                                            borderRadius: '6px',
+                                                            fontSize: '13px',
+                                                            color: '#6b7280'
+                                                        }}>
+                                                            🔍 Checking your role...
+                                                        </div>
                                                     )}
                                                     
                                                     {selectedCircle.phase !== 'Active' && (
@@ -2456,7 +2544,7 @@ ${circle.phase === 'Setup' ?
                                         <div><strong style={{ color: '#111827' }}>Members:</strong> <span style={{ color: '#374151' }}>{progressData.memberCount}/{progressData.maxMembers}</span></div>
                                         <div><strong style={{ color: '#111827' }}>Round:</strong> <span style={{ color: '#374151' }}>{progressData.completedRounds + 1}/{progressData.maxMembers}</span></div>
                                         <div><strong style={{ color: '#111827' }}>Remaining:</strong> <span style={{ color: '#374151' }}>{progressData.remainingRounds} rounds</span></div>
-                                        <div><strong style={{ color: '#111827' }}>Monthly Amount:</strong> <span style={{ color: '#374151' }}>{(progressData.depositAmount / 1e6).toFixed(2)} USDT</span></div>
+                                        <div><strong style={{ color: '#111827' }}>Monthly Amount:</strong> <span style={{ color: '#374151' }}>{progressData.depositAmount.toFixed(2)} USDT</span></div>
                                         <div><strong style={{ color: '#111827' }}>Penalty Rate:</strong> <span style={{ color: '#374151' }}>{(progressData.penaltyBps / 100).toFixed(1)}%</span></div>
                                     </div>
                                 </div>
@@ -2465,9 +2553,9 @@ ${circle.phase === 'Setup' ?
                                 <div style={{ marginBottom: '20px', padding: '20px', backgroundColor: '#ecfdf5', border: '2px solid #10b981', borderRadius: '12px' }}>
                                     <h4 style={{ margin: '0 0 16px 0', color: '#065f46', fontSize: '16px', fontWeight: '600' }}>👤 Your Stats</h4>
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '14px', color: '#065f46' }}>
-                                        <div><strong style={{ color: '#065f46' }}>Total Deposited:</strong> <span>{(progressData.userStats.totalDeposited / 1e6).toFixed(2)} USDT</span></div>
-                                        <div><strong style={{ color: '#065f46' }}>Total Received:</strong> <span>{(progressData.userStats.totalReceived / 1e6).toFixed(2)} USDT</span></div>
-                                        <div><strong style={{ color: '#065f46' }}>Penalties Paid:</strong> <span>{(progressData.userStats.penaltiesAccrued / 1e6).toFixed(2)} USDT</span></div>
+                                        <div><strong style={{ color: '#065f46' }}>Total Deposited:</strong> <span>{progressData.userStats.totalDeposited.toFixed(2)} USDT</span></div>
+                                        <div><strong style={{ color: '#065f46' }}>Total Received:</strong> <span>{progressData.userStats.totalReceived.toFixed(2)} USDT</span></div>
+                                        <div><strong style={{ color: '#065f46' }}>Penalties Paid:</strong> <span>{progressData.userStats.penaltiesAccrued.toFixed(2)} USDT</span></div>
                                         <div><strong style={{ color: '#065f46' }}>Grace Periods:</strong> <span>{progressData.userStats.gracePeriodsUsed}/1 used</span></div>
                                         <div><strong style={{ color: '#065f46' }}>Late Payments:</strong> <span>{progressData.userStats.defaultCount}</span></div>
                                         <div><strong style={{ color: '#065f46' }}>Your Turn Round:</strong> <span>{progressData.userTurnRound >= 0 ? progressData.userTurnRound + 1 : 'N/A'}</span></div>
@@ -2498,7 +2586,7 @@ ${circle.phase === 'Setup' ?
                                             <strong>Deadline:</strong> {new Date(progressData.currentRoundData.deadline * 1000).toLocaleString()}
                                         </div>
                                         <div style={{ marginBottom: '16px', color: '#92400e', fontSize: '14px' }}>
-                                            <strong>Collected:</strong> {(progressData.currentRoundData.totalDeposited / 1e6).toFixed(2)} USDT
+                                            <strong>Collected:</strong> {progressData.currentRoundData.totalDeposited.toFixed(2)} USDT
                                         </div>
                                         
                                         {/* Member Payment Status */}
@@ -2539,8 +2627,8 @@ ${circle.phase === 'Setup' ?
                                 <div style={{ marginBottom: '20px', padding: '20px', backgroundColor: '#eff6ff', border: '2px solid #3b82f6', borderRadius: '12px' }}>
                                     <h4 style={{ margin: '0 0 16px 0', color: '#1e40af', fontSize: '16px', fontWeight: '600' }}>💰 Financial Summary</h4>
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '14px', color: '#1e40af' }}>
-                                        <div><strong style={{ color: '#1e40af' }}>Club Pool:</strong> <span>{(progressData.clubPool / 1e6).toFixed(2)} USDT</span></div>
-                                        <div><strong style={{ color: '#1e40af' }}>Total Yield:</strong> <span>{(progressData.totalYieldAccrued / 1e6).toFixed(2)} USDT</span></div>
+                                        <div><strong style={{ color: '#1e40af' }}>Club Pool:</strong> <span>{progressData.clubPool.toFixed(2)} USDT</span></div>
+                                        <div><strong style={{ color: '#1e40af' }}>Total Yield:</strong> <span>{progressData.totalYieldAccrued.toFixed(2)} USDT</span></div>
                                         <div><strong style={{ color: '#1e40af' }}>Round Duration:</strong> <span>{Math.floor(progressData.roundDuration / 86400)} days</span></div>
                                         <div><strong style={{ color: '#1e40af' }}>Circle Health:</strong> 
                                             <span style={{ color: progressData.memberDeposits?.filter(m => m.hasDefaulted).length > 0 ? '#dc2626' : '#059669', marginLeft: '4px', fontWeight: '500' }}>
