@@ -24,6 +24,9 @@ export default function Circles() {
     const [myCircles, setMyCircles] = useState<any[]>([]);
     const [selectedCircle, setSelectedCircle] = useState<any>(null);
     const [showCircleDetails, setShowCircleDetails] = useState(false);
+    const [showProgressModal, setShowProgressModal] = useState(false);
+    const [progressData, setProgressData] = useState<any>(null);
+    const [loadingProgress, setLoadingProgress] = useState(false);
     
     // Balance detection states
     const [showBalanceModal, setShowBalanceModal] = useState(false);
@@ -488,6 +491,18 @@ export default function Circles() {
                 const usdtBalanceFormatted = (parseInt(usdtBalanceWei as string, 16) / 1e6).toFixed(2);
                 setUsdtBalance(usdtBalanceFormatted);
                 console.log('✅ Refreshed USDT Balance:', usdtBalanceFormatted, 'USDT');
+
+                // // Dispatch custom event to notify other pages (like profile page) to refresh their balances
+                // const balanceUpdateEvent = new CustomEvent('balanceUpdated', {
+                //     detail: {
+                //         kaiaBalance: kaiaBalanceEth,
+                //         usdtBalance: usdtBalanceFormatted,
+                //         account: account,
+                //         timestamp: Date.now()
+                //     }
+                // });
+                // window.dispatchEvent(balanceUpdateEvent);
+                // console.log('📡 Balance update event dispatched to other pages');
             }
         } catch (error) {
             console.error('❌ Error refreshing balances:', error);
@@ -844,6 +859,191 @@ export default function Circles() {
             alert(errorMessage);
         }
     }, [account, makeDeposit, refreshBalances, refreshCircleData]);
+
+    const handleViewProgress = useCallback(async (circleAddress: string) => {
+        console.log('📊 View Progress clicked with data:', {
+            account,
+            circleAddress,
+            selectedCircle,
+            selectedCircleAddress: selectedCircle?.address,
+            hasWallet: !!account,
+            hasCircleAddress: !!circleAddress
+        });
+
+        if (!account) {
+            alert('❌ Wallet not connected. Please connect your wallet first.');
+            return;
+        }
+
+        if (!circleAddress || circleAddress === 'pending') {
+            console.log('❌ Circle address issue:', { circleAddress, selectedCircle });
+            alert('❌ Circle contract address not available. This could mean:\n\n1. Circle is still being deployed\n2. Circle data hasn\'t loaded yet\n3. Invalid circle selected\n\nPlease wait a moment and try refreshing the circle data.');
+            return;
+        }
+
+        try {
+            setLoadingProgress(true);
+            console.log('📊 Fetching comprehensive circle progress for:', circleAddress);
+
+            const { ethers } = await import('ethers');
+            const { KYE_GROUP_ABI } = await import('@/utils/contracts/abis');
+            
+            if (!sdk) {
+                throw new Error('Wallet SDK not available');
+            }
+
+            const walletProvider = sdk.getWalletProvider();
+            const provider = new ethers.BrowserProvider(walletProvider);
+            const circleContract = new ethers.Contract(circleAddress, KYE_GROUP_ABI, provider);
+
+            // Fetch comprehensive circle data
+            console.log('📊 Fetching complete circle data with updated ABI...');
+            
+            const [
+                currentRound,
+                maxMembers,
+                depositAmount,
+                penaltyBps,
+                roundDuration,
+                phase,
+                clubPool,
+                totalYieldAccrued,
+                members,
+                memberCount
+            ] = await Promise.all([
+                circleContract.currentRound(),
+                circleContract.maxMembers(),
+                circleContract.depositAmount(),
+                circleContract.penaltyBps(),
+                circleContract.roundDuration(),
+                circleContract.currentPhase(),
+                circleContract.clubPool(),
+                circleContract.totalYieldAccrued(),
+                circleContract.getMembers(),
+                circleContract.memberCount()
+            ]);
+
+            console.log('✅ Complete circle data fetched successfully:', {
+                currentRound: Number(currentRound),
+                maxMembers: Number(maxMembers),
+                depositAmount: Number(depositAmount),
+                penaltyBps: Number(penaltyBps),
+                roundDuration: Number(roundDuration),
+                phase: Number(phase),
+                clubPool: Number(clubPool),
+                totalYieldAccrued: Number(totalYieldAccrued),
+                memberCount: Number(memberCount),
+                membersLength: members.length
+            });
+
+            // Get current round details if active
+            let currentRoundData = null;
+            const memberDeposits = [];
+            
+            if (Number(currentRound) < Number(maxMembers) && phase >= 2) { // Phase 2+ (Active or later)
+                try {
+                    currentRoundData = await circleContract.getRoundState(currentRound);
+                    console.log('🔄 Current round data:', currentRoundData);
+                    
+                    // Get deposit status for each member in current round
+                    for (let i = 0; i < members.length; i++) {
+                        const member = members[i];
+                        const depositRecord = await circleContract.getDepositRecord(currentRound, member);
+                        const memberState = await circleContract.getMemberState(member);
+                        const isCurrentUser = member.toLowerCase() === account.toLowerCase();
+                        const isBeneficiary = member.toLowerCase() === currentRoundData.beneficiary.toLowerCase();
+                        
+                        memberDeposits.push({
+                            address: member,
+                            isCurrentUser,
+                            isBeneficiary,
+                            depositAmount: Number(depositRecord.amount),
+                            penaltyPaid: Number(depositRecord.penaltyPaid),
+                            isOnTime: depositRecord.isOnTime,
+                            timestamp: Number(depositRecord.timestamp),
+                            hasDeposited: Number(depositRecord.amount) > 0,
+                            totalDeposited: Number(memberState.totalDeposited),
+                            totalReceived: Number(memberState.totalReceived),
+                            penaltiesAccrued: Number(memberState.penaltiesAccrued),
+                            gracePeriodsUsed: Number(memberState.gracePeriodsUsed),
+                            defaultCount: Number(memberState.defaultCount),
+                            hasDefaulted: memberState.hasDefaulted,
+                            isActive: memberState.isActive
+                        });
+                    }
+                } catch (error) {
+                    console.log('⚠️ Could not fetch current round details:', error);
+                }
+            }
+
+            // Get user's personal stats
+            const userMemberState = await circleContract.getMemberState(account);
+            const userStats = {
+                totalDeposited: Number(userMemberState.totalDeposited),
+                totalReceived: Number(userMemberState.totalReceived),
+                penaltiesAccrued: Number(userMemberState.penaltiesAccrued),
+                gracePeriodsUsed: Number(userMemberState.gracePeriodsUsed),
+                gracePeriodsRemaining: 1 - Number(userMemberState.gracePeriodsUsed),
+                defaultCount: Number(userMemberState.defaultCount),
+                hasDefaulted: userMemberState.hasDefaulted,
+                isActive: userMemberState.isActive,
+                isCurrentUser: true
+            };
+
+            // Calculate next beneficiary and user's turn
+            const userIndex = members.findIndex(m => m.toLowerCase() === account.toLowerCase());
+            const nextBeneficiaryIndex = Number(currentRound) < Number(maxMembers) ? Number(currentRound) : -1;
+            const userTurnRound = userIndex >= 0 ? userIndex : -1;
+            const userHadTurn = userTurnRound >= 0 && userTurnRound < Number(currentRound);
+            const userIsNextBeneficiary = nextBeneficiaryIndex === userIndex;
+
+            // Phase names
+            const phaseNames = ['Setup', 'Commitment', 'Active', 'Settlement', 'Resolved', 'Disputed'];
+            const currentPhase = phaseNames[Number(phase)] || `Unknown (${phase})`;
+
+            const progressInfo = {
+                circleAddress,
+                currentRound: Number(currentRound),
+                maxMembers: Number(maxMembers),
+                depositAmount: Number(depositAmount),
+                penaltyBps: Number(penaltyBps),
+                roundDuration: Number(roundDuration),
+                phase: Number(phase),
+                currentPhase,
+                clubPool: Number(clubPool),
+                totalYieldAccrued: Number(totalYieldAccrued),
+                memberCount: Number(memberCount),
+                members,
+                currentRoundData: currentRoundData ? {
+                    deadline: Number(currentRoundData.deadline),
+                    beneficiary: currentRoundData.beneficiary,
+                    totalDeposited: Number(currentRoundData.totalDeposited),
+                    yieldAccrued: Number(currentRoundData.yieldAccrued),
+                    isComplete: currentRoundData.isComplete,
+                    requiredDeposits: Number(currentRoundData.requiredDeposits)
+                } : null,
+                memberDeposits,
+                userStats,
+                nextBeneficiaryIndex,
+                userTurnRound,
+                userHadTurn,
+                userIsNextBeneficiary,
+                completedRounds: Number(currentRound),
+                remainingRounds: Math.max(0, Number(maxMembers) - Number(currentRound)),
+                isComplete: Number(phase) >= 4 // Resolved phase
+            };
+
+            console.log('📊 Complete progress data:', progressInfo);
+            setProgressData(progressInfo);
+            setShowProgressModal(true);
+
+        } catch (error) {
+            console.error('❌ Error fetching progress:', error);
+            alert(`Failed to load progress: ${error.message || error}`);
+        } finally {
+            setLoadingProgress(false);
+        }
+    }, [account, sdk, selectedCircle]);
 
     const fallbackCopyToClipboard = useCallback((text, label) => {
         try {
@@ -1995,8 +2195,19 @@ ${circle.phase === 'Setup' ?
                                         >
                                             🔍 Check Membership
                                         </button>
-                                        <button className={styles.inviteButton}>
-                                            📊 View Progress
+                                        <button 
+                                            className={styles.inviteButton}
+                                            onClick={() => handleViewProgress(selectedCircle?.address)}
+                                            disabled={loadingProgress || !selectedCircle?.address || selectedCircle?.address === 'pending'}
+                                            title={
+                                                !selectedCircle?.address || selectedCircle?.address === 'pending' 
+                                                    ? "Circle contract address not ready yet"
+                                                    : "View detailed circle progress and member payment status"
+                                            }
+                                        >
+                                            {loadingProgress ? '🔄 Loading...' : 
+                                             !selectedCircle?.address || selectedCircle?.address === 'pending' ? '⏳ Not Ready' :
+                                             '📊 View Progress'}
                                         </button>
                                     </div>
                                 </div>
@@ -2217,6 +2428,134 @@ ${circle.phase === 'Setup' ?
                                 >
                                     🏦 Go to Profile Page
                                 </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Progress Modal */}
+                {showProgressModal && progressData && (
+                    <div className={styles.modalOverlay} onClick={() => setShowProgressModal(false)}>
+                        <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+                            <div className={styles.modalHeader}>
+                                <h3 style={{ color: '#1f2937', fontSize: '20px', fontWeight: '700' }}>📊 Circle Progress Report</h3>
+                                <button 
+                                    className={styles.modalCloseButton} 
+                                    onClick={() => setShowProgressModal(false)}
+                                >
+                                    ×
+                                </button>
+                            </div>
+                            
+                            <div className={styles.modalBody} style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+                                {/* Circle Status Overview */}
+                                <div style={{ marginBottom: '20px', padding: '20px', backgroundColor: '#ffffff', border: '2px solid #e5e7eb', borderRadius: '12px' }}>
+                                    <h4 style={{ margin: '0 0 16px 0', color: '#111827', fontSize: '16px', fontWeight: '600' }}>📈 Circle Status</h4>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '14px', color: '#374151' }}>
+                                        <div><strong style={{ color: '#111827' }}>Phase:</strong> <span style={{ color: progressData.phase >= 4 ? '#059669' : '#d97706', fontWeight: '500' }}>{progressData.currentPhase}</span></div>
+                                        <div><strong style={{ color: '#111827' }}>Members:</strong> <span style={{ color: '#374151' }}>{progressData.memberCount}/{progressData.maxMembers}</span></div>
+                                        <div><strong style={{ color: '#111827' }}>Round:</strong> <span style={{ color: '#374151' }}>{progressData.completedRounds + 1}/{progressData.maxMembers}</span></div>
+                                        <div><strong style={{ color: '#111827' }}>Remaining:</strong> <span style={{ color: '#374151' }}>{progressData.remainingRounds} rounds</span></div>
+                                        <div><strong style={{ color: '#111827' }}>Monthly Amount:</strong> <span style={{ color: '#374151' }}>{(progressData.depositAmount / 1e6).toFixed(2)} USDT</span></div>
+                                        <div><strong style={{ color: '#111827' }}>Penalty Rate:</strong> <span style={{ color: '#374151' }}>{(progressData.penaltyBps / 100).toFixed(1)}%</span></div>
+                                    </div>
+                                </div>
+
+                                {/* Personal Stats */}
+                                <div style={{ marginBottom: '20px', padding: '20px', backgroundColor: '#ecfdf5', border: '2px solid #10b981', borderRadius: '12px' }}>
+                                    <h4 style={{ margin: '0 0 16px 0', color: '#065f46', fontSize: '16px', fontWeight: '600' }}>👤 Your Stats</h4>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '14px', color: '#065f46' }}>
+                                        <div><strong style={{ color: '#065f46' }}>Total Deposited:</strong> <span>{(progressData.userStats.totalDeposited / 1e6).toFixed(2)} USDT</span></div>
+                                        <div><strong style={{ color: '#065f46' }}>Total Received:</strong> <span>{(progressData.userStats.totalReceived / 1e6).toFixed(2)} USDT</span></div>
+                                        <div><strong style={{ color: '#065f46' }}>Penalties Paid:</strong> <span>{(progressData.userStats.penaltiesAccrued / 1e6).toFixed(2)} USDT</span></div>
+                                        <div><strong style={{ color: '#065f46' }}>Grace Periods:</strong> <span>{progressData.userStats.gracePeriodsUsed}/1 used</span></div>
+                                        <div><strong style={{ color: '#065f46' }}>Late Payments:</strong> <span>{progressData.userStats.defaultCount}</span></div>
+                                        <div><strong style={{ color: '#065f46' }}>Your Turn Round:</strong> <span>{progressData.userTurnRound >= 0 ? progressData.userTurnRound + 1 : 'N/A'}</span></div>
+                                    </div>
+                                    
+                                    {progressData.userIsNextBeneficiary && (
+                                        <div style={{ marginTop: '16px', padding: '12px', backgroundColor: '#059669', color: 'white', borderRadius: '8px', textAlign: 'center', fontWeight: '500' }}>
+                                            🎉 You are the next beneficiary!
+                                        </div>
+                                    )}
+                                    
+                                    {progressData.userHadTurn && (
+                                        <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#4b5563', color: 'white', borderRadius: '8px', textAlign: 'center', fontWeight: '500' }}>
+                                            ✅ You already received your payout
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Current Round Details */}
+                                {progressData.currentRoundData && !progressData.isComplete && (
+                                    <div style={{ marginBottom: '20px', padding: '20px', backgroundColor: '#fef3c7', border: '2px solid #f59e0b', borderRadius: '12px' }}>
+                                        <h4 style={{ margin: '0 0 16px 0', color: '#92400e', fontSize: '16px', fontWeight: '600' }}>🔄 Current Round {progressData.currentRound + 1}</h4>
+                                        <div style={{ marginBottom: '12px', color: '#92400e', fontSize: '14px' }}>
+                                            <strong>Beneficiary:</strong> {progressData.currentRoundData.beneficiary.slice(0, 8)}...{progressData.currentRoundData.beneficiary.slice(-6)}
+                                            {progressData.currentRoundData.beneficiary.toLowerCase() === account.toLowerCase() && <span style={{ color: '#059669', marginLeft: '8px', fontWeight: '600' }}>(You)</span>}
+                                        </div>
+                                        <div style={{ marginBottom: '12px', color: '#92400e', fontSize: '14px' }}>
+                                            <strong>Deadline:</strong> {new Date(progressData.currentRoundData.deadline * 1000).toLocaleString()}
+                                        </div>
+                                        <div style={{ marginBottom: '16px', color: '#92400e', fontSize: '14px' }}>
+                                            <strong>Collected:</strong> {(progressData.currentRoundData.totalDeposited / 1e6).toFixed(2)} USDT
+                                        </div>
+                                        
+                                        {/* Member Payment Status */}
+                                        <div>
+                                            <strong style={{ color: '#92400e', fontSize: '14px' }}>Payment Status:</strong>
+                                            <div style={{ marginTop: '12px', display: 'grid', gap: '8px' }}>
+                                                {progressData.memberDeposits.map((member, index) => (
+                                                    <div key={index} style={{ 
+                                                        display: 'flex', 
+                                                        justifyContent: 'space-between', 
+                                                        alignItems: 'center',
+                                                        padding: '8px 12px',
+                                                        backgroundColor: member.isCurrentUser ? '#dcfce7' : member.isBeneficiary ? '#dbeafe' : '#ffffff',
+                                                        border: member.isCurrentUser ? '1px solid #059669' : member.isBeneficiary ? '1px solid #3b82f6' : '1px solid #d1d5db',
+                                                        borderRadius: '6px',
+                                                        fontSize: '13px'
+                                                    }}>
+                                                        <span style={{ color: '#111827' }}>
+                                                            {member.address.slice(0, 6)}...{member.address.slice(-4)}
+                                                            {member.isCurrentUser && <span style={{ color: '#059669', fontWeight: '600' }}> (You)</span>}
+                                                            {member.isBeneficiary && <span style={{ color: '#3b82f6', fontWeight: '600' }}> (Beneficiary)</span>}
+                                                        </span>
+                                                        <span style={{ 
+                                                            color: member.hasDeposited ? '#059669' : member.isBeneficiary ? '#4b5563' : '#dc2626',
+                                                            fontWeight: '500'
+                                                        }}>
+                                                            {member.isBeneficiary ? '🎯 Receiving' : member.hasDeposited ? '✅ Paid' : '⏳ Pending'}
+                                                            {member.penaltyPaid > 0 && <span style={{ color: '#dc2626' }}> (+${(member.penaltyPaid / 1e6).toFixed(2)} penalty)</span>}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Circle Financial Summary */}
+                                <div style={{ marginBottom: '20px', padding: '20px', backgroundColor: '#eff6ff', border: '2px solid #3b82f6', borderRadius: '12px' }}>
+                                    <h4 style={{ margin: '0 0 16px 0', color: '#1e40af', fontSize: '16px', fontWeight: '600' }}>💰 Financial Summary</h4>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '14px', color: '#1e40af' }}>
+                                        <div><strong style={{ color: '#1e40af' }}>Club Pool:</strong> <span>{(progressData.clubPool / 1e6).toFixed(2)} USDT</span></div>
+                                        <div><strong style={{ color: '#1e40af' }}>Total Yield:</strong> <span>{(progressData.totalYieldAccrued / 1e6).toFixed(2)} USDT</span></div>
+                                        <div><strong style={{ color: '#1e40af' }}>Round Duration:</strong> <span>{Math.floor(progressData.roundDuration / 86400)} days</span></div>
+                                        <div><strong style={{ color: '#1e40af' }}>Circle Health:</strong> 
+                                            <span style={{ color: progressData.memberDeposits?.filter(m => m.hasDefaulted).length > 0 ? '#dc2626' : '#059669', marginLeft: '4px', fontWeight: '500' }}>
+                                                {progressData.memberDeposits?.filter(m => !m.hasDefaulted).length || progressData.memberCount}/{progressData.memberCount} Active
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {progressData.isComplete && (
+                                    <div style={{ padding: '20px', backgroundColor: '#059669', color: 'white', borderRadius: '12px', textAlign: 'center' }}>
+                                        <h4 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: '600' }}>🎉 Circle Complete!</h4>
+                                        <p style={{ margin: '0', fontSize: '14px', opacity: '0.9' }}>All members have received their payouts. Final distribution of penalties and yield will be processed.</p>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

@@ -97,7 +97,7 @@ export const KYE_GROUP_ABI = [
       { name: "_maxMembers", type: "uint256" }
     ]
   },
-  // View functions
+  // Public variables (auto-generated getters)
   {
     type: "function",
     name: "maxMembers",
@@ -107,9 +107,58 @@ export const KYE_GROUP_ABI = [
   },
   {
     type: "function",
-    name: "currentPhase",
+    name: "phase",
     inputs: [],
     outputs: [{ name: "", type: "uint8" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "usdtToken",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "yieldAdapter",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "creator",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "lineGroupIdHash",
+    inputs: [],
+    outputs: [{ name: "", type: "bytes32" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "depositAmount",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "penaltyBps",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "roundDuration",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view"
   },
   {
@@ -121,7 +170,14 @@ export const KYE_GROUP_ABI = [
   },
   {
     type: "function",
-    name: "depositAmount",
+    name: "clubPool",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "totalYieldAccrued",
     inputs: [],
     outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view"
@@ -135,13 +191,6 @@ export const KYE_GROUP_ABI = [
   },
   {
     type: "function",
-    name: "memberCount",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view"
-  },
-  {
-    type: "function",
     name: "memberStates",
     inputs: [{ name: "", type: "address" }],
     outputs: [
@@ -150,9 +199,10 @@ export const KYE_GROUP_ABI = [
       { name: "totalDeposited", type: "uint256" },
       { name: "totalReceived", type: "uint256" },
       { name: "penaltiesAccrued", type: "uint256" },
-      { name: "lastActiveRound", type: "uint256" },
+      { name: "gracePeriodsUsed", type: "uint256" },
+      { name: "defaultCount", type: "uint256" },
       { name: "hasDefaulted", type: "bool" },
-      { name: "reputation", type: "uint256" }
+      { name: "isActive", type: "bool" }
     ],
     stateMutability: "view"
   },
@@ -165,8 +215,139 @@ export const KYE_GROUP_ABI = [
       { name: "beneficiary", type: "address" },
       { name: "totalDeposited", type: "uint256" },
       { name: "yieldAccrued", type: "uint256" },
-      { name: "isComplete", type: "bool" }
+      { name: "isComplete", type: "bool" },
+      { name: "requiredDeposits", type: "uint256" }
     ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "deposits",
+    inputs: [{ name: "", type: "uint256" }, { name: "", type: "address" }],
+    outputs: [
+      { name: "amount", type: "uint256" },
+      { name: "timestamp", type: "uint256" },
+      { name: "penaltyPaid", type: "uint256" },
+      { name: "isOnTime", type: "bool" }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "memberDeadlines",
+    inputs: [{ name: "", type: "uint256" }, { name: "", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "isMember",
+    inputs: [{ name: "", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view"
+  },
+  // View functions
+  {
+    type: "function",
+    name: "memberCount",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "currentPhase",
+    inputs: [],
+    outputs: [{ name: "", type: "uint8" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getMembers",
+    inputs: [],
+    outputs: [{ name: "", type: "address[]" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getMemberState",
+    inputs: [{ name: "member", type: "address" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        components: [
+          { name: "wallet", type: "address" },
+          { name: "lineUserIdHash", type: "bytes32" },
+          { name: "totalDeposited", type: "uint256" },
+          { name: "totalReceived", type: "uint256" },
+          { name: "penaltiesAccrued", type: "uint256" },
+          { name: "gracePeriodsUsed", type: "uint256" },
+          { name: "defaultCount", type: "uint256" },
+          { name: "hasDefaulted", type: "bool" },
+          { name: "isActive", type: "bool" }
+        ]
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getRoundState",
+    inputs: [{ name: "roundIndex", type: "uint256" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        components: [
+          { name: "deadline", type: "uint256" },
+          { name: "beneficiary", type: "address" },
+          { name: "totalDeposited", type: "uint256" },
+          { name: "yieldAccrued", type: "uint256" },
+          { name: "isComplete", type: "bool" },
+          { name: "requiredDeposits", type: "uint256" }
+        ]
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getDepositRecord",
+    inputs: [{ name: "roundIndex", type: "uint256" }, { name: "member", type: "address" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        components: [
+          { name: "amount", type: "uint256" },
+          { name: "timestamp", type: "uint256" },
+          { name: "penaltyPaid", type: "uint256" },
+          { name: "isOnTime", type: "bool" }
+        ]
+      }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "calculatePenalty",
+    inputs: [{ name: "member", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "isCircleComplete",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getCurrentRoundDeadline",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view"
   },
   // Core actions
@@ -182,24 +363,21 @@ export const KYE_GROUP_ABI = [
     name: "deposit",
     inputs: [],
     outputs: [],
+    stateMutability: "payable"
+  },
+  {
+    type: "function",
+    name: "requestGracePeriod",
+    inputs: [],
+    outputs: [],
     stateMutability: "nonpayable"
   },
   {
     type: "function",
-    name: "calculatePenalty",
-    inputs: [
-      { name: "member", type: "address" },
-      { name: "roundIndex", type: "uint256" }
-    ],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view"
-  },
-  {
-    type: "function",
-    name: "getRemainingTime",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view"
+    name: "emergencyCancel",
+    inputs: [{ name: "reason", type: "string" }],
+    outputs: [],
+    stateMutability: "nonpayable"
   },
   // Events
   {
@@ -207,8 +385,24 @@ export const KYE_GROUP_ABI = [
     name: "MemberJoined",
     inputs: [
       { name: "member", type: "address", indexed: true },
-      { name: "lineUserIdHash", type: "bytes32", indexed: true },
-      { name: "memberIndex", type: "uint256", indexed: false }
+      { name: "lineUserIdHash", type: "bytes32", indexed: false }
+    ]
+  },
+  {
+    type: "event",
+    name: "PhaseChanged",
+    inputs: [
+      { name: "oldPhase", type: "uint8", indexed: false },
+      { name: "newPhase", type: "uint8", indexed: false }
+    ]
+  },
+  {
+    type: "event",
+    name: "RoundStarted",
+    inputs: [
+      { name: "roundIndex", type: "uint256", indexed: true },
+      { name: "beneficiary", type: "address", indexed: true },
+      { name: "deadline", type: "uint256", indexed: false }
     ]
   },
   {
@@ -216,26 +410,48 @@ export const KYE_GROUP_ABI = [
     name: "DepositMade",
     inputs: [
       { name: "member", type: "address", indexed: true },
-      { name: "round", type: "uint256", indexed: true },
+      { name: "roundIndex", type: "uint256", indexed: true },
       { name: "amount", type: "uint256", indexed: false },
       { name: "penalty", type: "uint256", indexed: false }
     ]
   },
   {
     type: "event",
-    name: "PayoutDistributed",
+    name: "PayoutExecuted",
     inputs: [
       { name: "beneficiary", type: "address", indexed: true },
-      { name: "round", type: "uint256", indexed: true },
+      { name: "roundIndex", type: "uint256", indexed: true },
       { name: "amount", type: "uint256", indexed: false }
     ]
   },
   {
     type: "event",
-    name: "PhaseChanged",
+    name: "PenaltyCharged",
     inputs: [
-      { name: "from", type: "uint8", indexed: false },
-      { name: "to", type: "uint8", indexed: false }
+      { name: "member", type: "address", indexed: true },
+      { name: "penalty", type: "uint256", indexed: false }
+    ]
+  },
+  {
+    type: "event",
+    name: "GracePeriodGranted",
+    inputs: [
+      { name: "member", type: "address", indexed: true },
+      { name: "roundIndex", type: "uint256", indexed: true }
+    ]
+  },
+  {
+    type: "event",
+    name: "YieldDistributed",
+    inputs: [
+      { name: "amount", type: "uint256", indexed: false }
+    ]
+  },
+  {
+    type: "event",
+    name: "EmergencyCancel",
+    inputs: [
+      { name: "reason", type: "string", indexed: false }
     ]
   }
 ] as const;

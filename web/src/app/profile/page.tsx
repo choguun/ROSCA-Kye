@@ -60,19 +60,28 @@ export default function Event () {
         
         try {
             setLoading(true);
+            console.log('🔄 [Profile] Fetching balances for account:', account);
+            console.log('🔄 [Profile] USDT Address:', MOCK_USDT_ADDRESS);
             
             // Fetch Kaia native token balance
             const kaiaBalanceWei = await getBalance([account, 'latest']);
             const kaiaBalanceEther = (parseInt(kaiaBalanceWei as string, 16) / 1e18).toFixed(4);
             setKaiaBalance(kaiaBalanceEther);
+            console.log('✅ [Profile] Kaia Balance updated:', kaiaBalanceEther, 'KAIA');
             
-            // Fetch Mock USDT balance
-            const usdtBalanceWei = await getErc20TokenBalance(MOCK_USDT_ADDRESS, account);
-            const usdtBalanceFormatted = (parseInt(usdtBalanceWei as string, 16) / 1e6).toFixed(2); // USDT has 6 decimals
-            setUsdtBalance(usdtBalanceFormatted);
+            // Fetch Mock USDT balance - check if address is available
+            if (MOCK_USDT_ADDRESS) {
+                const usdtBalanceWei = await getErc20TokenBalance(MOCK_USDT_ADDRESS, account);
+                const usdtBalanceFormatted = (parseInt(usdtBalanceWei as string, 16) / 1e6).toFixed(2); // USDT has 6 decimals
+                setUsdtBalance(usdtBalanceFormatted);
+                console.log('✅ [Profile] USDT Balance updated:', usdtBalanceFormatted, 'USDT');
+            } else {
+                console.log('⚠️ [Profile] USDT Address not available yet, skipping USDT balance fetch');
+                setUsdtBalance('Loading...');
+            }
             
         } catch (error) {
-            console.error('Error fetching balances:', error);
+            console.error('❌ [Profile] Error fetching balances:', error);
             setKaiaBalance('Error');
             setUsdtBalance('Error');
         } finally {
@@ -430,6 +439,42 @@ export default function Event () {
             fetchBalances();
         }
     }, [account, fetchBalances]);
+
+    // Auto-refresh when addresses become available
+    useEffect(() => {
+        if (account && addresses?.MockUSDT) {
+            console.log('🔄 [Profile] Addresses loaded, refreshing balances...');
+            fetchBalances();
+        }
+    }, [account, addresses, fetchBalances]);
+
+    // Listen for balance update events from other pages (like circles page)
+    useEffect(() => {
+        if (!account) return;
+
+        const handleBalanceUpdate = (event: any) => {
+            const { detail } = event;
+            console.log('📡 [Profile] Received balance update event:', detail);
+            
+            // If the event is for the current account, update our state directly
+            if (detail.account === account) {
+                setKaiaBalance(detail.kaiaBalance);
+                setUsdtBalance(detail.usdtBalance);
+                console.log('✅ [Profile] Balance updated from event:', {
+                    kaia: detail.kaiaBalance,
+                    usdt: detail.usdtBalance
+                });
+            }
+        };
+
+        window.addEventListener('balanceUpdated', handleBalanceUpdate);
+        console.log('📡 [Profile] Balance update event listener registered');
+
+        return () => {
+            window.removeEventListener('balanceUpdated', handleBalanceUpdate);
+            console.log('📡 [Profile] Balance update event listener removed');
+        };
+    }, [account]);
     return (
         <div className={styles.root}>
             <div className={styles.body}>
