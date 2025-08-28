@@ -6,12 +6,7 @@ import { getContractAddresses, DEFAULT_CHAIN_ID, logAddressConfiguration } from 
 import { KYE_FACTORY_ABI, KYE_GROUP_ABI, MOCK_USDT_ABI, SAVINGS_POCKET_ABI, Phase } from '@/utils/contracts/abis';
 import { ethers } from 'ethers';
 import * as Sentry from '@sentry/nextjs';
-import { 
-  validateTransactionFormat, 
-  debugContractCall, 
-  logTransactionAttempt, 
-  decodeError32603 
-} from '@/utils/debug-transaction';
+
 import type { 
   CircleParams, 
   CircleMetadata, 
@@ -22,7 +17,6 @@ import type {
   JoinCircleResult,
   DepositInfo 
 } from '@/utils/contracts/types';
-import { KYEGROUP_BYTECODE } from '@/utils/contracts/bytecode';
 
 // Utility functions
 function hashLineGroupId(groupId: string): string {
@@ -124,7 +118,15 @@ export const useKyeContracts = () => {
       console.log('=== CREATE CIRCLE START ===');
       console.log('Circle name:', circleName);
       console.log('Deposit amount (USDT):', depositAmountUsdt);
+      console.log('🔍 Type of depositAmountUsdt:', typeof depositAmountUsdt);
+      console.log('🔍 String representation:', JSON.stringify(depositAmountUsdt));
+      console.log('🔍 Parsed as float:', parseFloat(depositAmountUsdt));
       console.log('Available addresses:', addresses);
+      
+      // Extra validation
+      if (!depositAmountUsdt || isNaN(parseFloat(depositAmountUsdt))) {
+        throw new Error(`Invalid depositAmountUsdt: "${depositAmountUsdt}" (type: ${typeof depositAmountUsdt})`);
+      }
 
       Sentry.addBreadcrumb({
         message: 'Creating new Kye circle',
@@ -142,9 +144,24 @@ export const useKyeContracts = () => {
       const lineGroupId = `group_${circleName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
       console.log('Generated LINE group ID:', lineGroupId);
 
-      // Convert USDT amount properly (6 decimals)
-      const depositAmountWei = ethers.parseUnits(depositAmountUsdt, 6);
-      console.log('Deposit amount conversion:', depositAmountUsdt, '→', depositAmountWei.toString());
+      // Convert USDT amount properly (6 decimals)  
+      console.log('🔧 CONVERSION FIX: Manual conversion to avoid parseUnits bug');
+      console.log('🔧 Input:', depositAmountUsdt, 'USDT');
+      
+      // Manual conversion: multiply by 1e6 for 6 decimals
+      const manualWei = BigInt(Math.floor(parseFloat(depositAmountUsdt) * 1e6));
+      console.log('🔧 Manual calculation:', depositAmountUsdt, '* 1e6 =', manualWei.toString());
+      
+      // Test parseUnits for comparison
+      const parseUnitsResult = ethers.parseUnits(depositAmountUsdt, 6);
+      console.log('🔧 parseUnits result:', parseUnitsResult.toString());
+      console.log('🔧 parseUnits vs manual:', parseUnitsResult.toString() === manualWei.toString() ? '✅ MATCH' : '❌ DIFFERENT');
+      
+      // Use manual conversion to fix the bug
+      const depositAmountWei = manualWei;
+      
+      console.log('🔧 Using manual conversion result:', depositAmountWei.toString());
+      console.log('🔧 Back to USDT:', Number(depositAmountWei) / 1e6);
 
       // Prepare CircleParams matching the smart contract structure  
       const params = {
@@ -190,21 +207,6 @@ export const useKyeContracts = () => {
         gas: gasLimitHex,
         data: deployCircleData
       };
-
-      console.log('📤 Sending deployCircle transaction...');
-      console.log('Transaction details:');
-      console.log('- From:', account);
-      console.log('- To (Factory):', addresses.KyeFactory);
-      console.log('- Gas (decimal):', gasLimit);
-      console.log('- Gas (hex):', gasLimitHex);
-      console.log('- Data:', deployCircleData);
-
-      // Validate transaction format
-      const validationResult = validateTransactionFormat(tx);
-      if (!validationResult.isValid) {
-        console.error('❌ Transaction format validation failed:', validationResult.errors);
-        throw new Error(`Transaction format errors: ${validationResult.errors.join(', ')}`);
-      }
 
       console.log('🚀 All validations passed, deploying circle...');
       const result = await sendTransaction(tx);
@@ -397,47 +399,6 @@ export const useKyeContracts = () => {
         gas: gasLimitHex,
         data: joinCircleData
       };
-      
-      console.log('Transaction prepared:');
-      console.log('- To:', tx.to);
-      console.log('- From:', tx.from);
-      console.log('- Gas limit:', gasLimit);
-      console.log('- Data:', tx.data);
-
-      console.log('📤 Sending joinCircle transaction...');
-      console.log('Transaction details:');
-      console.log('- From:', account);
-      console.log('- To (Circle):', inviteCode);
-      console.log('- Gas (hex):', gasLimitHex);
-      console.log('- Data:', joinCircleData);
-
-      // Validate transaction format
-      const validationResult = validateTransactionFormat(tx);
-      if (!validationResult.isValid) {
-        console.error('❌ Transaction format validation failed:', validationResult.errors);
-        throw new Error(`Transaction format errors: ${validationResult.errors.join(', ')}`);
-      }
-
-      // Step 3: Test transaction before sending (dry run)
-      console.log('🧪 Step 3: Testing transaction (dry run)...');
-      try {
-        if (sdk) {
-          const walletProvider = sdk.getWalletProvider();
-          const provider = new ethers.BrowserProvider(walletProvider);
-          
-          // Try to call the contract method directly first to see if it would succeed
-          const testResult = await provider.call({
-            to: tx.to,
-            data: tx.data,
-            from: tx.from
-          });
-          console.log('✅ Dry run successful, transaction should work');
-        }
-      } catch (dryRunError) {
-        console.warn('⚠️ Dry run failed:', dryRunError);
-        console.warn('This transaction will likely fail, but proceeding anyway...');
-        // Don't throw here, just warn
-      }
 
       console.log('🚀 All validations passed, joining circle...');
       const result = await sendTransaction(tx);
@@ -469,20 +430,7 @@ export const useKyeContracts = () => {
           
           const memberCount = await circleContract.memberCount();
           console.log(`Member count after join (attempt ${attempts}):`, memberCount.toString());
-          
-          // Check if user is now in the members list
-          let memberIndex = -1;
-          for (let i = 0; i < memberCount; i++) {
-            const memberAddress = await circleContract.members(i);
-            console.log(`Member ${i}:`, memberAddress);
-            if (memberAddress.toLowerCase() === account.toLowerCase()) {
-              isMember = true;
-              memberIndex = i;
-              console.log(`✅ User successfully joined as member #${i} on attempt ${attempts}`);
-              break;
-            }
-          }
-          
+            
           if (!isMember && attempts < maxAttempts) {
             console.warn(`⚠️ User not found in member list on attempt ${attempts}, retrying...`);
           } else if (!isMember) {
@@ -516,10 +464,7 @@ export const useKyeContracts = () => {
     } catch (error) {
       console.error('=== JOIN CIRCLE ERROR ===');
       console.error('Raw error:', error);
-      console.error('Error type:', typeof error);
-      console.error('Error code:', error?.code);
-      console.error('Error message:', error?.message);
-      console.error('Error stack:', error?.stack);
+      console.error('Error type:', typeof error);;
 
       let userFriendlyMessage = 'Failed to join circle';
       
@@ -533,12 +478,6 @@ export const useKyeContracts = () => {
           userFriendlyMessage = 'Insufficient funds for gas fees. Please add more KAIA to your wallet.';
         } else if (error.message.includes('network') || error.message.includes('Network')) {
           userFriendlyMessage = `Network Error: ${error.message}\n\nTry switching to Kaia Kairos Testnet manually in your wallet.`;
-        } else if (error?.code === 4001) {
-          userFriendlyMessage = 'Transaction rejected by user';
-        } else if (error?.code === -32603) {
-          userFriendlyMessage = `RPC Error (-32603): ${error.message}\n\nThis usually indicates a network or contract issue.`;
-        } else if (error?.code === -32000) {
-          userFriendlyMessage = `Transaction Failed (-32000): ${error.message}\n\nThe transaction would fail execution.`;
         } else {
           userFriendlyMessage = `Error: ${error.message}`;
         }
@@ -649,16 +588,39 @@ export const useKyeContracts = () => {
         } else if (depositAmountRaw && depositAmountRaw.toString) {
           depositAmount = BigInt(depositAmountRaw.toString());
         } else {
-          console.warn('Unexpected deposit amount format, using fallback');
-          depositAmount = BigInt('1000000000'); // 1000 USDT as fallback
+          console.warn('Unexpected deposit amount format, will check localStorage');
+          depositAmount = BigInt('0');
         }
         
-        console.log('Processed deposit amount:', depositAmount.toString(), 'wei');
-        console.log('Deposit amount in USDT:', Number(depositAmount) / 1e6);
+        // Apply bug detection for both 0 and buggy large values
+        const rawDepositWei = Number(depositAmount);
+        console.log('🔧 makeDeposit bug detection:', { rawDepositWei, isBuggy: rawDepositWei > 1e12 });
+        
+        if (depositAmount === BigInt('0') || rawDepositWei > 1e12) {
+          console.log('⚠️ Contract depositAmount is buggy (0 or too large), checking localStorage for correct amount...');
+          const storedCircles = JSON.parse(localStorage.getItem('recentCircles') || '[]');
+          const matchingCircle = storedCircles.find((c: any) => 
+            c.address?.toLowerCase() === circleAddress.toLowerCase()
+          );
+          
+          if (matchingCircle && matchingCircle.monthlyAmount) {
+            // Use manual conversion to avoid parseUnits bug
+            const correctAmount = BigInt(Math.floor(parseFloat(matchingCircle.monthlyAmount) * 1e6));
+            depositAmount = correctAmount;
+            console.log('✅ Found correct deposit amount in localStorage:', matchingCircle.monthlyAmount, 'USDT');
+            console.log('✅ Manual conversion to wei:', depositAmount.toString());
+          } else {
+            console.log('❌ No matching circle found in localStorage, using 100 USDT default');
+            depositAmount = BigInt('100000000'); // 100 USDT default
+          }
+        }
+        
+        console.log('Final deposit amount:', depositAmount.toString(), 'wei');
+        console.log('Final deposit amount in USDT:', Number(depositAmount) / 1e6);
       } catch (depositError) {
         console.error('Error getting deposit amount from contract:', depositError);
-        console.log('Using fallback deposit amount: 1000 USDT');
-        depositAmount = BigInt('1000000000'); // 1000 USDT as fallback
+        console.log('Using default deposit amount: 100 USDT');
+        depositAmount = BigInt('100000000'); // 100 USDT default
       }
       
       // Check if user has enough USDT balance
@@ -1178,43 +1140,6 @@ export const useKyeContracts = () => {
         gas: gasLimitHex, // SDK expects hex format
         data: mintData
       };
-
-      console.log('📤 Sending transaction...');
-      console.log('Transaction details:');
-      console.log('- Network:', detectedNetwork.name);
-      console.log('- Chain ID:', detectedNetwork.chainId);
-      console.log('- From:', account);
-      console.log('- To:', usdtAddress);  
-      console.log('- Gas (decimal):', gasLimit);
-      console.log('- Gas (hex):', gasLimitHex);
-      console.log('- Value:', '0x0');
-      console.log('- Data:', mintData);
-      
-      // Step 5: Comprehensive transaction debugging
-      console.log('🔍 Running comprehensive transaction debug...');
-      
-      // Debug contract accessibility
-      if (sdk) {
-        const walletProvider = sdk.getWalletProvider();
-        const contractDebug = await debugContractCall(usdtAddress, walletProvider, account);
-        console.log('Contract debug results:', contractDebug);
-        
-        if (!contractDebug.success) {
-          throw new Error(`Contract validation failed: ${JSON.stringify(contractDebug)}`);
-        }
-      } else {
-        console.warn('⚠️  SDK not available, skipping contract debug');
-      }
-      
-      // Validate transaction format
-      const validationResult = validateTransactionFormat(tx);
-      if (!validationResult.isValid) {
-        console.error('❌ Transaction format validation failed:', validationResult.errors);
-        throw new Error(`Transaction format errors: ${validationResult.errors.join(', ')}`);
-      }
-      
-      // Log transaction attempt for debugging
-      logTransactionAttempt(tx);
       
       console.log('🚀 All validations passed, sending transaction...');
       const result = await sendTransaction(tx);

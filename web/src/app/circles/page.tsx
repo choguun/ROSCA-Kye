@@ -113,13 +113,23 @@ export default function Circles() {
             // Since we don't have a creator() function, we'll assume the first member is the creator
             const creator = members.length > 0 ? members[0] : '0x0';
             
-            // Safely handle BigInt deposit amount to avoid FixedNumber errors
+            // Safely handle BigInt deposit amount with bug detection
             const depositAmountUsdt = (() => {
                 try {
                     // Handle both BigInt and regular number formats
                     const amountStr = depositAmount.toString();
-                    const amountBigInt = BigInt(amountStr);
-                    return ethers.formatUnits(amountBigInt.toString(), 6);
+                    const rawDepositWei = Number(amountStr);
+                    
+                    // Apply bug detection - if > 1 trillion wei, it's a buggy contract
+                    if (rawDepositWei > 1e12) {
+                        const result = (rawDepositWei / 1e12).toString();
+                        console.log('🔧 fetchCircleData: Detected buggy contract, using 1e12 divisor:', result);
+                        return result;
+                    } else {
+                        const result = (rawDepositWei / 1e6).toString();
+                        console.log('🔧 fetchCircleData: Detected correct contract, using 1e6 divisor:', result);
+                        return result;
+                    }
                 } catch (e) {
                     console.warn('Failed to parse deposit amount:', depositAmount, e);
                     return 'Error';
@@ -1107,7 +1117,17 @@ Join us in this Korean-style savings group (Kye)! 🇰🇷`;
             
             const phaseNames = ['Setup', 'Active', 'Resolved', 'Cancelled'];
             const phaseName = phaseNames[Number(phase)] || 'Unknown';
-            const depositAmountUsdt = (Number(depositAmount) / 1e6).toString();
+            
+            // Fix display for both buggy and correct contracts
+            const rawDepositWei = Number(depositAmount);
+            const depositAmountUsdt = rawDepositWei > 1e12 ? 
+                (rawDepositWei / 1e12).toString() : 
+                (rawDepositWei / 1e6).toString();
+            console.log('🔧 Page display fix:', {
+                rawDepositWei, 
+                depositAmountUsdt, 
+                isBuggy: rawDepositWei > 1e12
+            });
             
             const memberInfo = `👥 Circle Members Information (Live Data)
 
@@ -2066,7 +2086,12 @@ ${circle.phase === 'Setup' ?
                                             <div className={styles.yieldEarnings}>
                                                 <span>📈</span>
                                                 <span>
-                                                    Est. yearly yield: ~{(parseFloat(circle.depositAmount) * (circle.maxMembers || 5) * parseFloat(currentAPY) / 100).toFixed(2)} USDT
+                                                    Est. yearly yield: ~{(() => {
+                                                        const depositValue = parseFloat(circle.depositAmount);
+                                                        // Fix display for buggy contracts
+                                                        const correctedDeposit = depositValue > 1000000 ? depositValue / 1000000 : depositValue;
+                                                        return (correctedDeposit * (circle.maxMembers || 5) * parseFloat(currentAPY) / 100).toFixed(2);
+                                                    })()} USDT
                                                 </span>
                                             </div>
                                         )}

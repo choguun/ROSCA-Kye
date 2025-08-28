@@ -33,6 +33,12 @@ export default function CirclesClient() {
         console.log('🔍 myCircles state changed:', myCircles);
         console.log('🔍 myCircles length:', myCircles.length);
     }, [myCircles]);
+    
+    useEffect(() => {
+        console.log('💰 monthlyAmount changed:', monthlyAmount);
+        console.log('💰 Type:', typeof monthlyAmount);
+        console.log('💰 Length:', monthlyAmount.length);
+    }, [monthlyAmount]);
 
     // Wallet hooks - exactly like profile page
     const { account, setAccount } = useWalletAccountStore();
@@ -145,8 +151,25 @@ export default function CirclesClient() {
                 })
             ]);
             
-            // Convert values
-            const depositAmountUsdt = (Number(depositAmount) / 1e6).toString(); // Convert from 6 decimals
+            // Convert values with bug detection
+            const rawDepositWei = Number(depositAmount);
+            console.log('🔧 DISPLAY CONVERSION:', {
+                rawDepositWei,
+                normalConversion: rawDepositWei / 1e6,
+                buggyContractDetected: rawDepositWei > 1e12 // More than 1 million USDT = buggy
+            });
+            
+            // Fix display for both old buggy contracts and new fixed contracts
+            let depositAmountUsdt;
+            if (rawDepositWei > 1e12) {
+                // This is a buggy contract - divide by extra 1e6 to fix display
+                depositAmountUsdt = (rawDepositWei / 1e12).toString();
+                console.log('🔧 Detected buggy contract, using 1e12 divisor:', depositAmountUsdt);
+            } else {
+                // This is a correctly deployed contract
+                depositAmountUsdt = (rawDepositWei / 1e6).toString();
+                console.log('🔧 Detected correct contract, using 1e6 divisor:', depositAmountUsdt);
+            }
             const memberCount = `${members.length}/${Number(maxMembers)}`;
             const phaseNames = ['Setup', 'Active', 'Resolved', 'Cancelled'];
             const phaseName = phaseNames[Number(phase)] || 'Unknown';
@@ -248,8 +271,18 @@ export default function CirclesClient() {
             console.log('  - creator:', creator);
             console.log('  - currentAccount:', account);
             
-            // Convert and format values
-            const depositAmountUsdt = (Number(depositAmount) / 1e6).toString();
+            // Convert and format values with bug detection
+            const rawDepositWei = Number(depositAmount);
+            let depositAmountUsdt;
+            if (rawDepositWei > 1e12) {
+                // Buggy contract - divide by 1e12 
+                depositAmountUsdt = (rawDepositWei / 1e12).toString();
+                console.log('🔧 Modal: Detected buggy contract, using 1e12 divisor:', depositAmountUsdt);
+            } else {
+                // Correct contract - divide by 1e6
+                depositAmountUsdt = (rawDepositWei / 1e6).toString();
+                console.log('🔧 Modal: Detected correct contract, using 1e6 divisor:', depositAmountUsdt);
+            }
             const phaseNames = ['Setup', 'Active', 'Resolved', 'Cancelled'];
             const phaseName = phaseNames[Number(phase)] || 'Unknown';
             // Check membership status with detailed logging
@@ -293,7 +326,9 @@ export default function CirclesClient() {
                 
                 // Financial info
                 depositAmount: depositAmountUsdt,
-                totalPool: (Number(depositAmount) * members.length / 1e6).toString(),
+                totalPool: (rawDepositWei > 1e12 ? 
+                    (rawDepositWei * members.length / 1e12).toString() : 
+                    (rawDepositWei * members.length / 1e6).toString()),
                 penaltyRate: (Number(penaltyBps) / 100).toString(), // Convert basis points to percentage
                 
                 // Membership info
@@ -510,6 +545,10 @@ export default function CirclesClient() {
             console.log('=== CREATE CIRCLE START ===');
             console.log('Circle name:', circleName);
             console.log('Monthly amount:', monthlyAmount);
+            console.log('🔍 Type of monthlyAmount:', typeof monthlyAmount);
+            console.log('🔍 Length of monthlyAmount:', monthlyAmount.length);
+            console.log('🔍 JSON stringify:', JSON.stringify(monthlyAmount));
+            console.log('🔍 Parsed as float:', parseFloat(monthlyAmount));
             console.log('Account:', account);
 
             // Network validation
