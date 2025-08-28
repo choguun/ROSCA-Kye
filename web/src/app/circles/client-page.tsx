@@ -23,6 +23,10 @@ export default function CirclesClient() {
         console.log('🔴 myCircles initial state function called');
         return [];
     });
+    const [showDetailsModal, setShowDetailsModal] = useState(false);
+    const [selectedCircle, setSelectedCircle] = useState(null);
+    const [circleDetails, setCircleDetails] = useState(null);
+    const [loadingDetails, setLoadingDetails] = useState(false);
     
     // Add debugging for state changes
     useEffect(() => {
@@ -147,19 +151,28 @@ export default function CirclesClient() {
             const phaseNames = ['Setup', 'Active', 'Resolved', 'Cancelled'];
             const phaseName = phaseNames[Number(phase)] || 'Unknown';
             
+            // Check membership status
+            const isUserMember = members.some(member => member.toLowerCase() === account.toLowerCase());
+            const isCreator = members.length > 0 && members[0].toLowerCase() === account.toLowerCase();
+            
             console.log('✅ Got REAL circle data:', {
                 depositAmount: depositAmountUsdt,
                 memberCount,
                 phase: phaseName,
                 members: members.length,
                 rawDepositAmount: depositAmount.toString(),
-                membersArray: members
+                membersArray: members,
+                isUserMember,
+                isCreator,
+                currentAccount: account
             });
             
             return {
                 depositAmount: depositAmountUsdt,
                 memberCount,
-                phase: phaseName
+                phase: phaseName,
+                isJoined: isUserMember && !isCreator, // Member but not creator
+                isCreator: isCreator // First member is creator
             };
             
         } catch (error) {
@@ -172,6 +185,149 @@ export default function CirclesClient() {
                 memberCount: '?/5', 
                 phase: 'Error'
             };
+        }
+    }, [getAccount, sdk]);
+
+    // Fetch comprehensive circle details for modal display
+    const fetchCircleDetails = useCallback(async (circle) => {
+        try {
+            console.log('🔍 Fetching comprehensive details for circle:', circle.address);
+            setLoadingDetails(true);
+            
+            if (!circle.address || circle.address === 'pending') {
+                console.log('❌ Cannot fetch details: invalid address');
+                return null;
+            }
+            
+            const account = await getAccount();
+            if (!account || !sdk) {
+                console.log('❌ No wallet account or SDK found');
+                return null;
+            }
+            
+            const { ethers } = await import('ethers');
+            const { KYE_GROUP_ABI } = await import('@/utils/contracts/abis');
+            
+            const walletProvider = sdk.getWalletProvider();
+            const provider = new ethers.BrowserProvider(walletProvider);
+            const circleContract = new ethers.Contract(circle.address, KYE_GROUP_ABI, provider);
+            
+            // Fetch comprehensive contract data with detailed logging
+            console.log('🔍 DETAILED FETCH - Contract address:', circle.address);
+            console.log('🔍 DETAILED FETCH - Current account:', account);
+            
+            const [
+                depositAmount,
+                members,
+                phase,
+                maxMembers,
+                roundDuration,
+                penaltyBps,
+                currentRound,
+                roundCount,
+                creator,
+                creationTime
+            ] = await Promise.all([
+                circleContract.depositAmount().catch((e) => { console.log('❌ depositAmount error:', e); return 0n; }),
+                circleContract.getMembers().catch((e) => { console.log('❌ getMembers error:', e); return []; }),
+                circleContract.phase().catch((e) => { console.log('❌ phase error:', e); return 0; }),
+                circleContract.maxMembers().catch((e) => { console.log('❌ maxMembers error:', e); return 5; }),
+                circleContract.roundDuration().catch((e) => { console.log('❌ roundDuration error:', e); return 0n; }),
+                circleContract.penaltyBps().catch((e) => { console.log('❌ penaltyBps error:', e); return 0n; }),
+                circleContract.currentRound().catch((e) => { console.log('❌ currentRound error:', e); return 0n; }),
+                circleContract.roundCount().catch((e) => { console.log('❌ roundCount error:', e); return 0n; }),
+                circleContract.creator().catch((e) => { console.log('❌ creator error:', e); return '0x0'; }),
+                circleContract.creationTime().catch((e) => { console.log('❌ creationTime error:', e); return 0n; })
+            ]);
+            
+            console.log('🔍 DETAILED FETCH - Raw contract responses:');
+            console.log('  - depositAmount:', depositAmount.toString());
+            console.log('  - members (raw):', members);
+            console.log('  - members length:', members.length);
+            console.log('  - phase:', phase.toString());
+            console.log('  - creator:', creator);
+            console.log('  - currentAccount:', account);
+            
+            // Convert and format values
+            const depositAmountUsdt = (Number(depositAmount) / 1e6).toString();
+            const phaseNames = ['Setup', 'Active', 'Resolved', 'Cancelled'];
+            const phaseName = phaseNames[Number(phase)] || 'Unknown';
+            // Check membership status with detailed logging
+            console.log('🔍 MEMBERSHIP CHECK:');
+            console.log('  - Current account (lowercase):', account.toLowerCase());
+            console.log('  - Creator (lowercase):', creator.toLowerCase());
+            console.log('  - Members array:');
+            members.forEach((member, index) => {
+                console.log(`    [${index}] ${member} (lowercase: ${member.toLowerCase()})`);
+                console.log(`    [${index}] Matches current account:`, member.toLowerCase() === account.toLowerCase());
+                console.log(`    [${index}] Matches creator:`, member.toLowerCase() === creator.toLowerCase());
+            });
+            
+            const isUserMember = members.some(m => m.toLowerCase() === account.toLowerCase());
+            const isCreator = creator.toLowerCase() === account.toLowerCase();
+            const memberIndex = members.findIndex(m => m.toLowerCase() === account.toLowerCase());
+            
+            console.log('🔍 MEMBERSHIP RESULTS:');
+            console.log('  - isUserMember:', isUserMember);
+            console.log('  - isCreator:', isCreator);
+            console.log('  - memberIndex:', memberIndex);
+            
+            // Calculate round information
+            const roundDurationHours = Number(roundDuration) / 3600; // Convert seconds to hours
+            const creationTimestamp = Number(creationTime) * 1000; // Convert to milliseconds
+            const currentRoundNum = Number(currentRound);
+            const totalRounds = Number(roundCount);
+            
+            // Get current beneficiary if active
+            let currentBeneficiary = null;
+            if (phaseName === 'Active' && currentRoundNum > 0 && currentRoundNum <= members.length) {
+                currentBeneficiary = members[currentRoundNum - 1];
+            }
+            
+            const details = {
+                // Basic info
+                name: circle.name,
+                address: circle.address,
+                transactionHash: circle.transactionHash,
+                phase: phaseName,
+                
+                // Financial info
+                depositAmount: depositAmountUsdt,
+                totalPool: (Number(depositAmount) * members.length / 1e6).toString(),
+                penaltyRate: (Number(penaltyBps) / 100).toString(), // Convert basis points to percentage
+                
+                // Membership info
+                members: members,
+                memberCount: members.length,
+                maxMembers: Number(maxMembers),
+                isUserMember,
+                isCreator,
+                memberIndex,
+                creator,
+                
+                // Round info
+                currentRound: currentRoundNum,
+                totalRounds,
+                roundDurationHours,
+                currentBeneficiary,
+                creationTime: creationTimestamp,
+                
+                // Calculated fields
+                isActive: phaseName === 'Active',
+                isSetup: phaseName === 'Setup',
+                isResolved: phaseName === 'Resolved',
+                isCancelled: phaseName === 'Cancelled',
+                userRole: isCreator ? 'Creator' : isUserMember ? 'Member' : 'Observer'
+            };
+            
+            console.log('✅ Comprehensive circle details:', details);
+            return details;
+            
+        } catch (error) {
+            console.error('❌ Error fetching circle details:', error);
+            return null;
+        } finally {
+            setLoadingDetails(false);
         }
     }, [getAccount, sdk]);
 
@@ -504,6 +660,17 @@ export default function CirclesClient() {
         }
     }, [account, inviteCode, joinCircle, getChainId]);
 
+    // Handle view details modal
+    const handleViewDetails = useCallback(async (circle) => {
+        console.log('🔍 Opening details for circle:', circle.address);
+        setSelectedCircle(circle);
+        setShowDetailsModal(true);
+        
+        // Fetch comprehensive details
+        const details = await fetchCircleDetails(circle);
+        setCircleDetails(details);
+    }, [fetchCircleDetails]);
+
     if (!isMounted) {
         return (
             <div className={styles.root}>
@@ -768,6 +935,52 @@ export default function CirclesClient() {
                         >
                             🔗
                         </button>
+                        <button 
+                            className={styles.testButton}
+                            onClick={async () => {
+                                console.log('🧪 MANUAL CONTRACT CHECK - Starting debug...');
+                                if (myCircles.length > 0) {
+                                    const circle = myCircles[0];
+                                    console.log('🧪 Testing circle:', circle.address);
+                                    
+                                    if (!circle.address || circle.address === 'pending') {
+                                        console.log('❌ Cannot check: invalid address');
+                                        return;
+                                    }
+                                    
+                                    try {
+                                        const account = await getAccount();
+                                        const { ethers } = await import('ethers');
+                                        const { KYE_GROUP_ABI } = await import('@/utils/contracts/abis');
+                                        
+                                        const walletProvider = sdk.getWalletProvider();
+                                        const provider = new ethers.BrowserProvider(walletProvider);
+                                        const contract = new ethers.Contract(circle.address, KYE_GROUP_ABI, provider);
+                                        
+                                        console.log('🧪 RAW CONTRACT CALL RESULTS:');
+                                        const members = await contract.getMembers();
+                                        const creator = await contract.creator();
+                                        const phase = await contract.phase();
+                                        
+                                        console.log('  - Contract address:', circle.address);
+                                        console.log('  - Current account:', account);
+                                        console.log('  - Members from contract:', members);
+                                        console.log('  - Creator from contract:', creator);
+                                        console.log('  - Phase from contract:', phase.toString());
+                                        
+                                        alert(`Debug results logged to console.\n\nContract: ${circle.address}\nMembers: ${members.length}\nCreator: ${creator}\nYour account: ${account}`);
+                                    } catch (error) {
+                                        console.error('🧪 Manual contract check error:', error);
+                                        alert('Error checking contract: ' + error.message);
+                                    }
+                                } else {
+                                    alert('No circles to test');
+                                }
+                            }}
+                            title="Manual contract data check"
+                        >
+                            🧪
+                        </button>
                     </div>
                     <div className={styles.circlesList}>
                         {(() => {
@@ -832,10 +1045,8 @@ export default function CirclesClient() {
                                     <div className={styles.circleActions}>
                                         <button 
                                             className={styles.viewButton}
-                                            onClick={() => {
-                                                // Navigate to circle details or manage circle
-                                                alert(`Circle Management coming soon!\n\nAddress: ${circle.address}\nTransaction: ${circle.transactionHash}`);
-                                            }}
+                                            onClick={() => handleViewDetails(circle)}
+                                            disabled={!circle.address || circle.address === 'pending'}
                                         >
                                             View Details
                                         </button>
@@ -867,6 +1078,190 @@ export default function CirclesClient() {
                     </div>
                 </div>
             </div>
+
+            {/* Circle Details Modal */}
+            {showDetailsModal && selectedCircle && (
+                <div className={styles.modalOverlay}>
+                    <div className={styles.modalContent}>
+                        <div className={styles.modalHeader}>
+                            <h3>🔍 Circle Details</h3>
+                            <button 
+                                className={styles.modalCloseButton}
+                                onClick={() => {
+                                    setShowDetailsModal(false);
+                                    setSelectedCircle(null);
+                                    setCircleDetails(null);
+                                }}
+                            >
+                                ×
+                            </button>
+                        </div>
+                        <div className={styles.modalBody}>
+                            {loadingDetails ? (
+                                <div style={{ textAlign: 'center', padding: '40px' }}>
+                                    <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏳</div>
+                                    <p>Loading comprehensive circle data...</p>
+                                </div>
+                            ) : circleDetails ? (
+                                <div>
+                                    {/* Basic Information */}
+                                    <div style={{ marginBottom: '24px', padding: '20px', background: '#f8f9fa', borderRadius: '12px' }}>
+                                        <h4 style={{ margin: '0 0 16px 0', color: '#111827', borderBottom: '2px solid #00B900', paddingBottom: '8px' }}>
+                                            📊 Basic Information
+                                        </h4>
+                                        <div style={{ display: 'grid', gap: '8px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#6b7280', fontSize: '14px' }}>Circle Name:</span>
+                                                <span style={{ color: '#111827', fontSize: '14px', fontWeight: '600' }}>{circleDetails.name}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#6b7280', fontSize: '14px' }}>Status:</span>
+                                                <span className={`${styles.phasebadge} ${styles[circleDetails.phase.toLowerCase()]}`}>
+                                                    {circleDetails.phase}
+                                                </span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#6b7280', fontSize: '14px' }}>Your Role:</span>
+                                                <span style={{ color: '#00B900', fontSize: '14px', fontWeight: '600' }}>
+                                                    {circleDetails.userRole}
+                                                </span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ color: '#6b7280', fontSize: '14px' }}>Contract Address:</span>
+                                                <span style={{ fontSize: '12px', fontFamily: 'monospace', color: '#374151' }}>
+                                                    {circleDetails.address.slice(0, 10)}...{circleDetails.address.slice(-8)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Financial Information */}
+                                    <div style={{ marginBottom: '24px', padding: '20px', background: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0' }}>
+                                        <h4 style={{ margin: '0 0 16px 0', color: '#111827', borderBottom: '2px solid #00B900', paddingBottom: '8px' }}>
+                                            💰 Financial Details
+                                        </h4>
+                                        <div style={{ display: 'grid', gap: '8px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#6b7280', fontSize: '14px' }}>Monthly Deposit:</span>
+                                                <span style={{ color: '#111827', fontSize: '14px', fontWeight: '600' }}>
+                                                    {circleDetails.depositAmount} USDT
+                                                </span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#6b7280', fontSize: '14px' }}>Total Pool Value:</span>
+                                                <span style={{ color: '#111827', fontSize: '14px', fontWeight: '600' }}>
+                                                    {circleDetails.totalPool} USDT
+                                                </span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#6b7280', fontSize: '14px' }}>Penalty Rate:</span>
+                                                <span style={{ color: '#ef4444', fontSize: '14px', fontWeight: '600' }}>
+                                                    {circleDetails.penaltyRate}%
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Membership Information */}
+                                    <div style={{ marginBottom: '24px', padding: '20px', background: '#fef3c7', borderRadius: '12px', border: '1px solid #f59e0b' }}>
+                                        <h4 style={{ margin: '0 0 16px 0', color: '#111827', borderBottom: '2px solid #00B900', paddingBottom: '8px' }}>
+                                            👥 Members ({circleDetails.memberCount}/{circleDetails.maxMembers})
+                                        </h4>
+                                        <div style={{ display: 'grid', gap: '8px' }}>
+                                            {circleDetails.members.map((member, index) => (
+                                                <div key={index} style={{ 
+                                                    display: 'flex', 
+                                                    justifyContent: 'space-between',
+                                                    padding: '8px 12px',
+                                                    background: 'white',
+                                                    borderRadius: '8px',
+                                                    border: member.toLowerCase() === circleDetails.creator.toLowerCase() ? '2px solid #00B900' : '1px solid #e5e7eb'
+                                                }}>
+                                                    <span style={{ color: '#6b7280', fontSize: '14px' }}>
+                                                        Member {index + 1}: 
+                                                        {member.toLowerCase() === circleDetails.creator.toLowerCase() && ' (Creator)'}
+                                                        {index === circleDetails.memberIndex && ' (You)'}
+                                                    </span>
+                                                    <span style={{ fontSize: '12px', fontFamily: 'monospace', color: '#374151' }}>
+                                                        {member.slice(0, 6)}...{member.slice(-4)}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Round Information */}
+                                    <div style={{ marginBottom: '24px', padding: '20px', background: '#e0e7ff', borderRadius: '12px', border: '1px solid #6366f1' }}>
+                                        <h4 style={{ margin: '0 0 16px 0', color: '#111827', borderBottom: '2px solid #00B900', paddingBottom: '8px' }}>
+                                            🔄 Round Progress
+                                        </h4>
+                                        <div style={{ display: 'grid', gap: '8px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#6b7280', fontSize: '14px' }}>Current Round:</span>
+                                                <span style={{ color: '#111827', fontSize: '14px', fontWeight: '600' }}>
+                                                    {circleDetails.currentRound} / {circleDetails.totalRounds || circleDetails.memberCount}
+                                                </span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#6b7280', fontSize: '14px' }}>Round Duration:</span>
+                                                <span style={{ color: '#111827', fontSize: '14px', fontWeight: '600' }}>
+                                                    {circleDetails.roundDurationHours} hours
+                                                </span>
+                                            </div>
+                                            {circleDetails.currentBeneficiary && (
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: '#6b7280', fontSize: '14px' }}>Current Beneficiary:</span>
+                                                    <span style={{ fontSize: '12px', fontFamily: 'monospace', color: '#374151' }}>
+                                                        {circleDetails.currentBeneficiary.slice(0, 6)}...{circleDetails.currentBeneficiary.slice(-4)}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#6b7280', fontSize: '14px' }}>Created:</span>
+                                                <span style={{ color: '#111827', fontSize: '14px', fontWeight: '600' }}>
+                                                    {new Date(circleDetails.creationTime).toLocaleDateString()}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Contract Information */}
+                                    <div style={{ padding: '20px', background: '#f3f4f6', borderRadius: '12px', border: '1px solid #d1d5db' }}>
+                                        <h4 style={{ margin: '0 0 16px 0', color: '#111827', borderBottom: '2px solid #00B900', paddingBottom: '8px' }}>
+                                            📋 Contract Details
+                                        </h4>
+                                        <div style={{ display: 'grid', gap: '8px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#6b7280', fontSize: '14px' }}>Transaction Hash:</span>
+                                                <span style={{ fontSize: '12px', fontFamily: 'monospace', color: '#374151' }}>
+                                                    {circleDetails.transactionHash?.slice(0, 10)}...{circleDetails.transactionHash?.slice(-8)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: '40px' }}>
+                                    <div style={{ fontSize: '48px', marginBottom: '16px' }}>❌</div>
+                                    <p>Failed to load circle details. Please try again.</p>
+                                </div>
+                            )}
+                        </div>
+                        <div className={styles.modalFooter}>
+                            <button 
+                                className={styles.modalCancelButton}
+                                onClick={() => {
+                                    setShowDetailsModal(false);
+                                    setSelectedCircle(null);
+                                    setCircleDetails(null);
+                                }}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

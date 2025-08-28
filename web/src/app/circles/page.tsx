@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { useWalletAccountStore } from "@/components/Wallet/Account/auth.hooks";
-import { useKaiaWalletSdk } from '@/components/Wallet/Sdk/walletSdk.hooks';
+import { useKaiaWalletSdk, useKaiaWalletSdkStore } from '@/components/Wallet/Sdk/walletSdk.hooks';
 import { useKyeContracts } from '@/hooks/useKyeContracts';
 import { WalletButton } from '@/components/Wallet/Button/WalletButton';
 import { useRouter } from 'next/navigation';
@@ -36,8 +36,123 @@ export default function Circles() {
     // Wallet hooks - exactly like profile page
     const { account, setAccount } = useWalletAccountStore();
     const { getAccount, getChainId, getBalance, getErc20TokenBalance } = useKaiaWalletSdk();
+    const { sdk } = useKaiaWalletSdkStore();
     const { createCircle, joinCircle, addresses, getContractAddressFromTx, getSavingsPocketAPY } = useKyeContracts();
     const router = useRouter();
+
+    // Fetch circle data from contract using Kaia Wallet SDK
+    const fetchCircleData = useCallback(async (circleAddress) => {
+        try {
+            console.log('🔍 Fetching REAL circle data for:', circleAddress);
+            
+            if (!circleAddress || circleAddress === 'pending') {
+                console.log('❌ Cannot fetch circle data: invalid address');
+                return {
+                    depositAmount: 'Pending',
+                    memberCount: '?/5',
+                    phase: 'Deploying'
+                };
+            }
+            
+            const account = await getAccount();
+            if (!account || !sdk) {
+                console.log('❌ No wallet account or SDK found');
+                return {
+                    depositAmount: 'No Wallet',
+                    memberCount: '?/5',
+                    phase: 'No Wallet'
+                };
+            }
+            
+            const { ethers } = await import('ethers');
+            const { KYE_GROUP_ABI } = await import('@/utils/contracts/abis');
+            
+            const walletProvider = sdk.getWalletProvider();
+            console.log('🔗 Using Kaia Wallet SDK provider:', walletProvider);
+            
+            const provider = new ethers.BrowserProvider(walletProvider);
+            const circleContract = new ethers.Contract(circleAddress, KYE_GROUP_ABI, provider);
+            
+            console.log('📞 Calling smart contract functions for address:', circleAddress);
+            
+            const [depositAmount, members, phase, maxMembers, creator] = await Promise.all([
+                circleContract.depositAmount().catch((e) => {
+                    console.log('❌ Error getting depositAmount:', e.message);
+                    return 0n;
+                }),
+                circleContract.getMembers().catch((e) => {
+                    console.log('❌ Error getting members:', e.message);
+                    return [];
+                }),
+                circleContract.phase().catch((e) => {
+                    console.log('❌ Error getting phase:', e.message);
+                    return 0;
+                }),
+                circleContract.maxMembers().catch((e) => {
+                    console.log('❌ Error getting maxMembers:', e.message);
+                    return 5;
+                }),
+                circleContract.creator().catch((e) => {
+                    console.log('❌ Error getting creator:', e.message);
+                    return '0x0';
+                })
+            ]);
+            
+            const depositAmountUsdt = (Number(depositAmount) / 1e6).toString();
+            const memberCount = `${members.length}/${Number(maxMembers)}`;
+            const phaseNames = ['Setup', 'Active', 'Resolved', 'Cancelled'];
+            const phaseName = phaseNames[Number(phase)] || 'Unknown';
+            
+            // Check membership status with detailed logging
+            console.log('🔍 MEMBERSHIP CHECK:');
+            console.log('  - Current account (lowercase):', account.toLowerCase());
+            console.log('  - Creator from contract (lowercase):', creator.toLowerCase());
+            console.log('  - Members array:', members);
+            members.forEach((member, index) => {
+                console.log(`    [${index}] ${member} (lowercase: ${member.toLowerCase()})`);
+                console.log(`    [${index}] Matches current account:`, member.toLowerCase() === account.toLowerCase());
+                console.log(`    [${index}] Matches creator:`, member.toLowerCase() === creator.toLowerCase());
+            });
+            
+            const isUserMember = members.some(member => member.toLowerCase() === account.toLowerCase());
+            const isCreator = creator.toLowerCase() === account.toLowerCase();
+            
+            console.log('🔍 MEMBERSHIP RESULTS:');
+            console.log('  - isUserMember:', isUserMember);
+            console.log('  - isCreator:', isCreator);
+            
+            console.log('✅ Got REAL circle data:', {
+                depositAmount: depositAmountUsdt,
+                memberCount,
+                phase: phaseName,
+                members: members.length,
+                rawDepositAmount: depositAmount.toString(),
+                membersArray: members,
+                isUserMember,
+                isCreator,
+                currentAccount: account
+            });
+            
+            return {
+                depositAmount: depositAmountUsdt,
+                memberCount,
+                phase: phaseName,
+                maxMembers: Number(maxMembers),
+                isJoined: isUserMember && !isCreator,
+                isCreator: isCreator
+            };
+            
+        } catch (error) {
+            console.error('❌ Error fetching circle data:', error);
+            console.error('❌ Error details:', error.message, error.code);
+            
+            return {
+                depositAmount: 'Error',
+                memberCount: '?/5', 
+                phase: 'Error'
+            };
+        }
+    }, [getAccount, sdk]);
 
     useEffect(() => {
         setIsMounted(true);
@@ -63,21 +178,52 @@ export default function Circles() {
         checkExistingAccount();
     }, [getAccount, setAccount, isMounted]);
 
-    // Load circles from localStorage
+    // Load circles from localStorage and fetch real data
     useEffect(() => {
-        if (!isMounted) return;
+        if (!isMounted || !account) return;
         
-        try {
-            const saved = localStorage.getItem('recentCircles');
-            if (saved) {
-                const circles = JSON.parse(saved);
-                console.log('Loaded circles from localStorage:', circles);
-                setMyCircles(circles);
+        const loadAndUpdateCircles = async () => {
+            try {
+                const saved = localStorage.getItem('recentCircles');
+                if (saved) {
+                    const circles = JSON.parse(saved);
+                    console.log('Loaded circles from localStorage:', circles);
+                    
+                    // Update circles that need data fetch
+                    const updatedCircles = await Promise.all(
+                        circles.map(async (circle) => {
+                            if (circle.needsDataFetch && circle.address && circle.address !== 'pending') {
+                                console.log('🔍 Fetching real data for circle:', circle.address);
+                                const contractData = await fetchCircleData(circle.address);
+                                return {
+                                    ...circle,
+                                    ...contractData,
+                                    needsDataFetch: false // Remove flag after fetching
+                                };
+                            }
+                            return circle;
+                        })
+                    );
+                    
+                    // Save updated data back to localStorage if changed
+                    if (JSON.stringify(updatedCircles) !== JSON.stringify(circles)) {
+                        console.log('💾 Saving updated circle data to localStorage');
+                        localStorage.setItem('recentCircles', JSON.stringify(updatedCircles));
+                    }
+                    
+                    console.log('✅ Setting myCircles state with', updatedCircles.length, 'circles');
+                    setMyCircles(updatedCircles);
+                } else {
+                    setMyCircles([]);
+                }
+            } catch (error) {
+                console.error('Error loading and updating circles:', error);
+                setMyCircles([]);
             }
-        } catch (error) {
-            console.error('Error loading circles from localStorage:', error);
-        }
-    }, [isMounted]);
+        };
+        
+        loadAndUpdateCircles();
+    }, [isMounted, account, fetchCircleData]);
 
     // Check token balances when account is connected
     useEffect(() => {
@@ -471,33 +617,119 @@ Join us in this Korean-style savings group (Kye)! 🇰🇷`;
         }
     }, [copyToClipboard]);
 
-    const handleViewMembers = (circle) => {
-        // For now, show basic member info
-        const memberInfo = `👥 Circle Members Information
+    const handleViewMembers = async (circle) => {
+        console.log('🔍 Fetching real member data for circle:', circle.address);
+        
+        try {
+            if (!circle.address || circle.address === 'pending') {
+                const memberInfo = `👥 Circle Members Information (Deploying)
 
 📋 Circle: ${circle.name}
-👤 Total Members: ${circle.memberCount}/5
+👤 Total Members: Pending deployment...
 💰 Monthly Amount: ${circle.depositAmount} USDT
 
-🏗️ Members List:
-1. You (Creator) ✅
-${circle.memberCount > 1 ? 
-    Array.from({length: circle.memberCount - 1}, (_, i) => 
-        `${i + 2}. Member ${i + 2} (Joined)`
-    ).join('\n') : 
-    ''}
-${circle.memberCount < 5 ? 
-    Array.from({length: 5 - circle.memberCount}, (_, i) => 
-        `${circle.memberCount + i + 1}. [Open Slot] 🔓`
-    ).join('\n') : 
-    ''}
+⏳ Contract Status: Deploying...
+📋 Transaction Hash: ${circle.transactionHash}
+
+💡 Member list will be available once the contract is deployed.`;
+                alert(memberInfo);
+                return;
+            }
+            
+            // Fetch real blockchain data
+            const currentAccount = await getAccount();
+            if (!currentAccount) {
+                alert('❌ Please connect your wallet to view member details.');
+                return;
+            }
+            
+            const { ethers } = await import('ethers');
+            const { KYE_GROUP_ABI } = await import('@/utils/contracts/abis');
+            
+            const walletProvider = sdk.getWalletProvider();
+            const provider = new ethers.BrowserProvider(walletProvider);
+            const contract = new ethers.Contract(circle.address, KYE_GROUP_ABI, provider);
+            
+            console.log('🔍 Fetching members from contract...');
+            
+            // Get real member data from blockchain
+            const [members, creator, depositAmount, maxMembers, phase] = await Promise.all([
+                contract.getMembers().catch(() => []),
+                contract.creator().catch(() => '0x0'),
+                contract.depositAmount().catch(() => 0n),
+                contract.maxMembers().catch(() => 5),
+                contract.phase().catch(() => 0)
+            ]);
+            
+            console.log('✅ Real member data:', {
+                members,
+                creator,
+                depositAmount: depositAmount.toString(),
+                maxMembers: Number(maxMembers),
+                phase: Number(phase)
+            });
+            
+            // Format member list
+            const membersList = members.map((member, index) => {
+                const isCreator = member.toLowerCase() === creator.toLowerCase();
+                const isCurrentUser = member.toLowerCase() === currentAccount.toLowerCase();
+                
+                let role = '';
+                if (isCreator) role += ' (Creator)';
+                if (isCurrentUser) role += ' (You)';
+                
+                return `${index + 1}. ${member.slice(0, 6)}...${member.slice(-4)}${role} ✅`;
+            }).join('\n');
+            
+            // Add open slots
+            const openSlots = Number(maxMembers) - members.length;
+            const openSlotsList = openSlots > 0 ? 
+                Array.from({length: openSlots}, (_, i) => 
+                    `${members.length + i + 1}. [Open Slot] 🔓`
+                ).join('\n') : '';
+            
+            const phaseNames = ['Setup', 'Active', 'Resolved', 'Cancelled'];
+            const phaseName = phaseNames[Number(phase)] || 'Unknown';
+            const depositAmountUsdt = (Number(depositAmount) / 1e6).toString();
+            
+            const memberInfo = `👥 Circle Members Information (Live Data)
+
+📋 Circle: ${circle.name}
+👤 Total Members: ${members.length}/${Number(maxMembers)}
+💰 Monthly Amount: ${depositAmountUsdt} USDT
+📊 Phase: ${phaseName}
+
+🏗️ Members List (Real Blockchain Data):
+${membersList}
+${openSlotsList ? '\n' + openSlotsList : ''}
+
+📍 Contract Address: ${circle.address}
+🗓️ Created: ${new Date(circle.createdAt).toLocaleDateString()}
+
+💡 To invite more members, share the contract address with them!`;
+
+            alert(memberInfo);
+            
+        } catch (error) {
+            console.error('❌ Error fetching member data:', error);
+            
+            // Fallback to stored data
+            const fallbackInfo = `👥 Circle Members Information (Fallback)
+
+📋 Circle: ${circle.name}
+👤 Total Members: ${circle.memberCount || '?'}/${circle.maxMembers || 5}
+💰 Monthly Amount: ${circle.depositAmount} USDT
+
+❌ Error fetching live member data from blockchain:
+${error.message}
 
 📍 Contract Address: ${circle.address || 'Deploying...'}
 🗓️ Created: ${new Date(circle.createdAt).toLocaleDateString()}
 
-💡 To invite more members, share the invite code with them!`;
-
-        alert(memberInfo);
+💡 Try refreshing or check your network connection.`;
+            
+            alert(fallbackInfo);
+        }
     };
 
     const handleCircleSettings = (circle) => {
@@ -671,6 +903,44 @@ ${circle.phase === 'Setup' ?
 
             if (result.success) {
                 alert(`✅ Successfully joined the circle!\n\nTransaction Hash: ${result.hash}\n\nWelcome to the savings group.`);
+                
+                // Store joined circle for demo persistence
+                try {
+                    if (typeof window !== 'undefined' && window.localStorage) {
+                        const joinedCircle = {
+                            name: `Circle ${inviteCode.slice(0, 8)}...`, // Short name from address
+                            depositAmount: 'Fetching...', // Will be updated when we fetch data
+                            memberCount: '1/5', // Default, will be updated
+                            maxMembers: 5,
+                            phase: 'Active',
+                            isCreator: false,
+                            isJoined: true,
+                            joinedAt: Date.now(),
+                            address: inviteCode,
+                            transactionHash: result.hash,
+                            needsDataFetch: true // Flag to indicate we need to fetch contract data
+                        };
+                        
+                        const existing = JSON.parse(localStorage.getItem('recentCircles') || '[]');
+                        
+                        // Check if already exists to avoid duplicates
+                        const alreadyExists = existing.some(circle => circle.address.toLowerCase() === inviteCode.toLowerCase());
+                        
+                        if (!alreadyExists) {
+                            existing.push(joinedCircle);
+                            localStorage.setItem('recentCircles', JSON.stringify(existing));
+                            console.log('✅ Saved joined circle to localStorage');
+                            
+                            // Update local circles list immediately
+                            setMyCircles(prev => [...prev, joinedCircle]);
+                            
+                        } else {
+                            console.log('⚠️ Circle already exists in localStorage, not adding duplicate');
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Failed to save joined circle to localStorage:', e);
+                }
                 
                 // Reset form
                 setInviteCode('');
@@ -941,7 +1211,11 @@ ${circle.phase === 'Setup' ?
                                         </div>
                                         <div className={styles.detailItem}>
                                             <span className={styles.detailLabel}>Your Role:</span>
-                                            <span className={styles.detailValue}>{selectedCircle.isCreator ? 'Creator' : 'Member'}</span>
+                                            <span className={styles.detailValue}>{
+                                                selectedCircle.isCreator ? '👑 Creator' : 
+                                                selectedCircle.isJoined ? '👥 Member' :
+                                                'Observer'
+                                            }</span>
                                         </div>
                                         <div className={styles.detailItem}>
                                             <span className={styles.detailLabel}>Created:</span>
@@ -1097,7 +1371,53 @@ ${circle.phase === 'Setup' ?
                 )}
 
                 <div className={styles.myCircles}>
-                    <h2>My Circles</h2>
+                    <div className={styles.circlesHeader}>
+                        <h2>My Circles</h2>
+                        <button 
+                            className={styles.refreshButton}
+                            onClick={async () => {
+                                console.log('🔄 Manual refresh clicked - Current circles:', myCircles);
+                                
+                                // Force refresh all circles with blockchain data
+                                const updatedCircles = await Promise.all(
+                                    myCircles.map(async (circle) => {
+                                        if (circle.address && circle.address !== 'pending') {
+                                            console.log(`🔄 Force refreshing circle: ${circle.address}`);
+                                            const realData = await fetchCircleData(circle.address);
+                                            return {
+                                                ...circle,
+                                                ...realData,
+                                                needsDataFetch: false
+                                            };
+                                        }
+                                        return circle;
+                                    })
+                                );
+                                
+                                console.log('✅ Updated circles with real data:', updatedCircles);
+                                setMyCircles(updatedCircles);
+                                
+                                // Save to localStorage
+                                localStorage.setItem('recentCircles', JSON.stringify(updatedCircles));
+                                alert('✅ Circles refreshed with latest blockchain data!');
+                            }}
+                            title="Refresh all circles with latest blockchain data"
+                        >
+                            🔄
+                        </button>
+                        <button 
+                            className={styles.debugButton}
+                            onClick={() => {
+                                console.log('🔧 DEBUG - Current circles state:', myCircles);
+                                console.log('🔧 DEBUG - localStorage data:', JSON.parse(localStorage.getItem('recentCircles') || '[]'));
+                                console.log('🔧 DEBUG - Account:', account);
+                                alert('Debug info logged to console');
+                            }}
+                            title="Debug circles data"
+                        >
+                            🐛
+                        </button>
+                    </div>
                     <div className={styles.circlesList}>
                         {myCircles.length === 0 ? (
                             <div className={styles.emptyState}>
@@ -1106,16 +1426,39 @@ ${circle.phase === 'Setup' ?
                                 <p>Create or join your first circle</p>
                             </div>
                         ) : (
-                            myCircles.map((circle, index) => (
+                            myCircles.map((circle, index) => {
+                                // Debug logging for each circle
+                                console.log(`🔍 RENDER CIRCLE ${index}:`, {
+                                    name: circle.name,
+                                    depositAmount: circle.depositAmount,
+                                    memberCount: circle.memberCount,
+                                    maxMembers: circle.maxMembers,
+                                    phase: circle.phase,
+                                    isCreator: circle.isCreator,
+                                    isJoined: circle.isJoined,
+                                    address: circle.address,
+                                    needsDataFetch: circle.needsDataFetch
+                                });
+                                
+                                return (
                                 <div key={index} className={styles.circleCard}>
                                     <div className={styles.circleHeader}>
                                         <h3>{circle.name}</h3>
                                         <span className={styles.circlePhase}>{circle.phase}</span>
+                                        {circle.needsDataFetch && (
+                                            <span style={{ fontSize: '12px', color: '#f59e0b', marginLeft: '8px' }}>
+                                                📡 Loading...
+                                            </span>
+                                        )}
                                     </div>
                                     <div className={styles.circleDetails}>
                                         <p><strong>Monthly Amount:</strong> {circle.depositAmount} USDT</p>
                                         <p><strong>Members:</strong> {circle.memberCount}/{circle.maxMembers || 5}</p>
-                                        <p><strong>Role:</strong> {circle.isCreator ? 'Creator' : 'Member'}</p>
+                                        <p><strong>Role:</strong> {
+                                            circle.isCreator ? '👑 Creator' : 
+                                            circle.isJoined ? '👥 Member' :
+                                            'Observer'
+                                        }</p>
                                         {circle.address && circle.address !== 'pending' && (
                                             <p><strong>Address:</strong> <span className={styles.address}>{circle.address}</span></p>
                                         )}
