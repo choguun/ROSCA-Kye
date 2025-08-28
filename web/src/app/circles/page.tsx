@@ -32,12 +32,13 @@ export default function Circles() {
     const [usdtBalance, setUsdtBalance] = useState('0');
     const [balanceChecked, setBalanceChecked] = useState(false);
     const [currentAPY, setCurrentAPY] = useState('5.00');
+    const [autoRefreshing, setAutoRefreshing] = useState(false);
 
     // Wallet hooks - exactly like profile page
     const { account, setAccount } = useWalletAccountStore();
     const { getAccount, getChainId, getBalance, getErc20TokenBalance } = useKaiaWalletSdk();
     const { sdk } = useKaiaWalletSdkStore();
-    const { createCircle, joinCircle, addresses, getContractAddressFromTx, getSavingsPocketAPY } = useKyeContracts();
+    const { createCircle, joinCircle, makeDeposit, addresses, getContractAddressFromTx, getSavingsPocketAPY } = useKyeContracts();
     const router = useRouter();
 
     // Fetch circle data from contract using Kaia Wallet SDK
@@ -75,33 +76,57 @@ export default function Circles() {
             
             console.log('📞 Calling smart contract functions for address:', circleAddress);
             
-            const [depositAmount, members, phase, maxMembers, creator] = await Promise.all([
+            const [depositAmount, memberCount, phase, maxMembers] = await Promise.all([
                 circleContract.depositAmount().catch((e) => {
                     console.log('❌ Error getting depositAmount:', e.message);
                     return 0n;
                 }),
-                circleContract.getMembers().catch((e) => {
-                    console.log('❌ Error getting members:', e.message);
-                    return [];
+                circleContract.memberCount().catch((e) => {
+                    console.log('❌ Error getting memberCount:', e.message);
+                    return 0n;
                 }),
-                circleContract.phase().catch((e) => {
-                    console.log('❌ Error getting phase:', e.message);
+                circleContract.currentPhase().catch((e) => {
+                    console.log('❌ Error getting currentPhase:', e.message);
                     return 0;
                 }),
                 circleContract.maxMembers().catch((e) => {
                     console.log('❌ Error getting maxMembers:', e.message);
                     return 5;
-                }),
-                circleContract.creator().catch((e) => {
-                    console.log('❌ Error getting creator:', e.message);
-                    return '0x0';
                 })
             ]);
             
-            const depositAmountUsdt = (Number(depositAmount) / 1e6).toString();
-            const memberCount = `${members.length}/${Number(maxMembers)}`;
-            const phaseNames = ['Setup', 'Active', 'Resolved', 'Cancelled'];
-            const phaseName = phaseNames[Number(phase)] || 'Unknown';
+            // Get individual members using the members(index) function
+            const members = [];
+            const totalMembers = Number(memberCount);
+            for (let i = 0; i < totalMembers; i++) {
+                try {
+                    const memberAddress = await circleContract.members(i);
+                    members.push(memberAddress);
+                } catch (e) {
+                    console.log(`❌ Error getting member ${i}:`, e.message);
+                    break;
+                }
+            }
+            
+            // Since we don't have a creator() function, we'll assume the first member is the creator
+            const creator = members.length > 0 ? members[0] : '0x0';
+            
+            // Safely handle BigInt deposit amount to avoid FixedNumber errors
+            const depositAmountUsdt = (() => {
+                try {
+                    // Handle both BigInt and regular number formats
+                    const amountStr = depositAmount.toString();
+                    const amountBigInt = BigInt(amountStr);
+                    return ethers.formatUnits(amountBigInt.toString(), 6);
+                } catch (e) {
+                    console.warn('Failed to parse deposit amount:', depositAmount, e);
+                    return 'Error';
+                }
+            })();
+            
+            const memberCountDisplay = `${members.length}/${Number(maxMembers)}`;
+            const phaseNames = ['Setup', 'Commitment', 'Active', 'Settlement', 'Resolved', 'Disputed'];
+            const phaseName = phaseNames[Number(phase)] || `Unknown (${phase})`;
             
             // Check membership status with detailed logging
             console.log('🔍 MEMBERSHIP CHECK:');
@@ -123,7 +148,7 @@ export default function Circles() {
             
             console.log('✅ Got REAL circle data:', {
                 depositAmount: depositAmountUsdt,
-                memberCount,
+                memberCount: memberCountDisplay,
                 phase: phaseName,
                 members: members.length,
                 rawDepositAmount: depositAmount.toString(),
@@ -135,7 +160,7 @@ export default function Circles() {
             
             return {
                 depositAmount: depositAmountUsdt,
-                memberCount,
+                memberCount: memberCountDisplay,
                 phase: phaseName,
                 maxMembers: Number(maxMembers),
                 isJoined: isUserMember && !isCreator,
@@ -145,11 +170,32 @@ export default function Circles() {
         } catch (error) {
             console.error('❌ Error fetching circle data:', error);
             console.error('❌ Error details:', error.message, error.code);
+            console.error('❌ Circle address:', circleAddress);
+            console.error('❌ Account:', account);
+            console.error('❌ SDK available:', !!sdk);
+            
+            // Provide more specific error messages
+            let errorPhase = 'Error';
+            let errorAmount = 'Error';
+            
+            if (error.message && error.message.includes('network')) {
+                errorPhase = 'Network Error';
+                errorAmount = 'Network Error';
+            } else if (error.message && error.message.includes('revert')) {
+                errorPhase = 'Contract Error';
+                errorAmount = 'Contract Error';
+            } else if (error.code === -32603) {
+                errorPhase = 'RPC Error';
+                errorAmount = 'RPC Error';
+            }
             
             return {
-                depositAmount: 'Error',
+                depositAmount: errorAmount,
                 memberCount: '?/5', 
-                phase: 'Error'
+                phase: errorPhase,
+                maxMembers: 5,
+                isJoined: false,
+                isCreator: false
             };
         }
     }, [getAccount, sdk]);
@@ -224,6 +270,72 @@ export default function Circles() {
         
         loadAndUpdateCircles();
     }, [isMounted, account, fetchCircleData]);
+
+    // Auto-refresh circle data periodically to catch updates from other members
+    useEffect(() => {
+        if (!account || myCircles.length === 0) return;
+        
+        const autoRefreshCircles = async () => {
+            console.log('🔄 Auto-refreshing circle data...');
+            setAutoRefreshing(true);
+            
+            try {
+                const updatedCircles = await Promise.all(
+                myCircles.map(async (circle) => {
+                    if (circle.address && circle.address !== 'pending') {
+                        try {
+                            const realData = await fetchCircleData(circle.address);
+                            const updated = {
+                                ...circle,
+                                ...realData,
+                                needsDataFetch: false
+                            };
+                            
+                            // Check if there were any changes
+                            const hasChanges = (
+                                circle.memberCount !== updated.memberCount ||
+                                circle.phase !== updated.phase ||
+                                circle.depositAmount !== updated.depositAmount
+                            );
+                            
+                            if (hasChanges) {
+                                console.log(`✅ Auto-refresh found changes for ${circle.name}:`, {
+                                    oldMemberCount: circle.memberCount,
+                                    newMemberCount: updated.memberCount,
+                                    oldPhase: circle.phase,
+                                    newPhase: updated.phase
+                                });
+                            }
+                            
+                            return updated;
+                        } catch (error) {
+                            console.error(`❌ Auto-refresh error for ${circle.address}:`, error);
+                            return circle;
+                        }
+                    }
+                    return circle;
+                })
+            );
+            
+                // Update state and localStorage if there are changes
+                if (JSON.stringify(updatedCircles) !== JSON.stringify(myCircles)) {
+                    console.log('📝 Auto-refresh updating circles with new data');
+                    setMyCircles(updatedCircles);
+                    localStorage.setItem('recentCircles', JSON.stringify(updatedCircles));
+                }
+            } catch (error) {
+                console.error('❌ Auto-refresh error:', error);
+            } finally {
+                setAutoRefreshing(false);
+            }
+        };
+        
+        // Auto-refresh every 30 seconds
+        const interval = setInterval(autoRefreshCircles, 30000);
+        
+        // Cleanup interval on unmount
+        return () => clearInterval(interval);
+    }, [account, myCircles, fetchCircleData]);
 
     // Check token balances when account is connected
     useEffect(() => {
@@ -417,6 +529,128 @@ export default function Circles() {
         // Scroll to top for better UX
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
+
+    const handleRefreshCircle = useCallback(async (circle, circleIndex) => {
+        console.log(`🔄 Manual refresh requested for circle:`, circle.address);
+        
+        // Update circle to show it's being refreshed
+        const updatedCircles = [...myCircles];
+        updatedCircles[circleIndex] = {
+            ...updatedCircles[circleIndex],
+            phase: 'Refreshing...',
+            memberCount: 'Loading...',
+            depositAmount: 'Loading...'
+        };
+        setMyCircles(updatedCircles);
+        
+        // Fetch fresh data
+        try {
+            if (circle.address && circle.address !== 'pending') {
+                console.log('🔍 Fetching fresh data for circle:', circle.address);
+                const freshData = await fetchCircleData(circle.address);
+                console.log('✅ Got fresh data:', freshData);
+                
+                // Update the specific circle with fresh data
+                const finalUpdatedCircles = [...myCircles];
+                finalUpdatedCircles[circleIndex] = {
+                    ...finalUpdatedCircles[circleIndex],
+                    ...freshData
+                };
+                setMyCircles(finalUpdatedCircles);
+                
+                // If data was successfully fetched, save to localStorage
+                if (!freshData.phase?.includes('Error') && typeof window !== 'undefined' && window.localStorage) {
+                    try {
+                        const existingCircles = JSON.parse(localStorage.getItem('recentCircles') || '[]');
+                        const updatedExisting = existingCircles.map(existing => 
+                            existing.address?.toLowerCase() === circle.address?.toLowerCase() 
+                                ? { ...existing, ...freshData, needsDataFetch: false }
+                                : existing
+                        );
+                        localStorage.setItem('recentCircles', JSON.stringify(updatedExisting));
+                        console.log('✅ Updated localStorage with fresh data');
+                    } catch (e) {
+                        console.warn('Failed to update localStorage:', e);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('❌ Failed to refresh circle data:', error);
+            // Revert to error state
+            const errorUpdatedCircles = [...myCircles];
+            errorUpdatedCircles[circleIndex] = {
+                ...errorUpdatedCircles[circleIndex],
+                phase: 'Refresh Failed',
+                memberCount: '?/5',
+                depositAmount: 'Refresh Failed'
+            };
+            setMyCircles(errorUpdatedCircles);
+        }
+    }, [myCircles, fetchCircleData]);
+
+    const handleMakeDeposit = useCallback(async (circleAddress) => {
+        if (!account) {
+            alert('Please connect your wallet first');
+            return;
+        }
+
+        if (!circleAddress) {
+            alert('Invalid circle address');
+            return;
+        }
+
+        if (!makeDeposit) {
+            alert('Deposit functionality not ready. Please refresh the page.');
+            return;
+        }
+
+        const confirmed = window.confirm(
+            'Make a deposit to this circle?\n\n' +
+            'This will transfer your monthly amount from your wallet to the circle contract.'
+        );
+
+        if (!confirmed) return;
+
+        try {
+            console.log('=== MAKE DEPOSIT START ===');
+            console.log('Circle address:', circleAddress);
+            console.log('Account:', account);
+
+            const result = await makeDeposit(circleAddress);
+            
+            if (result.success) {
+                alert(`✅ Deposit successful!\n\nTransaction Hash: ${result.hash}\n\nYour contribution has been added to the circle.`);
+                
+                // Refresh the circle data to show updated status
+                const circleIndex = myCircles.findIndex(circle => 
+                    circle.address?.toLowerCase() === circleAddress.toLowerCase()
+                );
+                if (circleIndex !== -1) {
+                    await handleRefreshCircle(myCircles[circleIndex], circleIndex);
+                }
+            } else {
+                throw new Error(result.error || 'Failed to make deposit');
+            }
+            
+        } catch (error) {
+            console.error('❌ Error making deposit:', error);
+            
+            let errorMessage = 'Failed to make deposit';
+            if (error instanceof Error) {
+                if (error.message.includes('network') || error.message.includes('Network')) {
+                    errorMessage = `Network Error: ${error.message}\n\nTry switching to Kaia Kairos Testnet manually in your wallet.`;
+                } else if (error?.code === 4001) {
+                    errorMessage = 'Transaction rejected by user';
+                } else if (error?.code === -32603) {
+                    errorMessage = `Contract Error: ${error.message}\n\nCheck network and contract addresses.`;
+                } else {
+                    errorMessage = `Error: ${error.message}`;
+                }
+            }
+            
+            alert(errorMessage);
+        }
+    }, [account, makeDeposit, myCircles, handleRefreshCircle]);
 
     const fallbackCopyToClipboard = useCallback((text, label) => {
         try {
@@ -1203,7 +1437,7 @@ ${circle.phase === 'Setup' ?
                                         </div>
                                         <div className={styles.detailItem}>
                                             <span className={styles.detailLabel}>Members:</span>
-                                            <span className={styles.detailValue}>{selectedCircle.memberCount}/5</span>
+                                            <span className={styles.detailValue}>{selectedCircle.memberCount}</span>
                                         </div>
                                         <div className={styles.detailItem}>
                                             <span className={styles.detailLabel}>Phase:</span>
@@ -1357,7 +1591,10 @@ ${circle.phase === 'Setup' ?
                                 <div className={styles.memberSection}>
                                     <h3>Member Actions</h3>
                                     <div className={styles.memberActions}>
-                                        <button className={styles.viewButton}>
+                                        <button 
+                                            className={styles.viewButton}
+                                            onClick={() => handleMakeDeposit(selectedCircle.address)}
+                                        >
                                             💰 Make Deposit
                                         </button>
                                         <button className={styles.inviteButton}>
@@ -1372,51 +1609,7 @@ ${circle.phase === 'Setup' ?
 
                 <div className={styles.myCircles}>
                     <div className={styles.circlesHeader}>
-                        <h2>My Circles</h2>
-                        <button 
-                            className={styles.refreshButton}
-                            onClick={async () => {
-                                console.log('🔄 Manual refresh clicked - Current circles:', myCircles);
-                                
-                                // Force refresh all circles with blockchain data
-                                const updatedCircles = await Promise.all(
-                                    myCircles.map(async (circle) => {
-                                        if (circle.address && circle.address !== 'pending') {
-                                            console.log(`🔄 Force refreshing circle: ${circle.address}`);
-                                            const realData = await fetchCircleData(circle.address);
-                                            return {
-                                                ...circle,
-                                                ...realData,
-                                                needsDataFetch: false
-                                            };
-                                        }
-                                        return circle;
-                                    })
-                                );
-                                
-                                console.log('✅ Updated circles with real data:', updatedCircles);
-                                setMyCircles(updatedCircles);
-                                
-                                // Save to localStorage
-                                localStorage.setItem('recentCircles', JSON.stringify(updatedCircles));
-                                alert('✅ Circles refreshed with latest blockchain data!');
-                            }}
-                            title="Refresh all circles with latest blockchain data"
-                        >
-                            🔄
-                        </button>
-                        <button 
-                            className={styles.debugButton}
-                            onClick={() => {
-                                console.log('🔧 DEBUG - Current circles state:', myCircles);
-                                console.log('🔧 DEBUG - localStorage data:', JSON.parse(localStorage.getItem('recentCircles') || '[]'));
-                                console.log('🔧 DEBUG - Account:', account);
-                                alert('Debug info logged to console');
-                            }}
-                            title="Debug circles data"
-                        >
-                            🐛
-                        </button>
+                        <h2>My Circles {autoRefreshing && <span style={{ fontSize: '14px', color: '#f59e0b' }}>🔄 Auto-refreshing...</span>}</h2>
                     </div>
                     <div className={styles.circlesList}>
                         {myCircles.length === 0 ? (
@@ -1453,7 +1646,7 @@ ${circle.phase === 'Setup' ?
                                     </div>
                                     <div className={styles.circleDetails}>
                                         <p><strong>Monthly Amount:</strong> {circle.depositAmount} USDT</p>
-                                        <p><strong>Members:</strong> {circle.memberCount}/{circle.maxMembers || 5}</p>
+                                        <p><strong>Members:</strong> {circle.memberCount}</p>
                                         <p><strong>Role:</strong> {
                                             circle.isCreator ? '👑 Creator' : 
                                             circle.isJoined ? '👥 Member' :
@@ -1488,6 +1681,29 @@ ${circle.phase === 'Setup' ?
                                         >
                                             View Details
                                         </button>
+                                        <button
+                                            className={styles.viewButton}
+                                            onClick={() => copyToClipboard(circle.address, 'Circle Invite Code')}
+                                        >
+                                            📋 Copy Invite Code
+                                        </button>
+                                        {(circle.phase?.includes('Error') || circle.depositAmount?.includes('Error')) && (
+                                            <button 
+                                                className={styles.refreshButton}
+                                                onClick={() => handleRefreshCircle(circle, index)}
+                                                style={{ 
+                                                    backgroundColor: '#f59e0b', 
+                                                    color: '#fff',
+                                                    border: 'none',
+                                                    padding: '8px 12px',
+                                                    borderRadius: '6px',
+                                                    fontSize: '0.875rem',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                🔄 Retry
+                                            </button>
+                                        )}
                                         {circle.isCreator && circle.phase === 'Setup' && (
                                             <button 
                                                 className={styles.manageButton}
@@ -1498,7 +1714,8 @@ ${circle.phase === 'Setup' ?
                                         )}
                                     </div>
                                 </div>
-                            ))
+                                );
+                            })
                         )}
                     </div>
                 </div>

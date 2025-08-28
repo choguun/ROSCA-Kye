@@ -443,46 +443,222 @@ export const useKyeContracts = () => {
     let account: string | null = null;
     
     try {
+      console.log('=== MAKE DEPOSIT START ===');
+      console.log('Circle address:', circleAddress);
+      
+      Sentry.addBreadcrumb({
+        message: 'Making deposit to circle',
+        category: 'contract',
+        level: 'info',
+        data: { circleAddress }
+      });
+
       account = await getAccount();
       if (!account) {
         throw new Error('Wallet not connected');
       }
+      console.log('Account:', account);
 
-      // First approve USDT spending
+      // Step 0: First mint some USDT for testing if balance is zero
+      try {
+        console.log('🔍 Checking USDT balance first...');
+        const currentBalanceRaw = await getErc20TokenBalance(addresses.MockUSDT, account);
+        console.log('Current USDT balance (raw):', currentBalanceRaw);
+        
+        let currentBalanceUsdt = 0;
+        if (currentBalanceRaw && currentBalanceRaw.startsWith('0x')) {
+          // Hex format
+          const balanceWei = BigInt(currentBalanceRaw);
+          currentBalanceUsdt = Number(balanceWei) / 1e6;
+        } else if (currentBalanceRaw) {
+          // Decimal format
+          currentBalanceUsdt = parseFloat(currentBalanceRaw);
+        }
+        
+        console.log('Current USDT balance (USDT):', currentBalanceUsdt);
+        
+        if (currentBalanceUsdt < 100) {
+          console.log('💰 Minting test USDT (1000 USDT) for deposit...');
+          const mintAmount = ethers.parseUnits('1000', 6).toString(); // 1000 USDT
+          
+          const usdtInterface = new ethers.Interface(MOCK_USDT_ABI);
+          const mintData = usdtInterface.encodeFunctionData('mint', [account, mintAmount]);
+          
+          const mintTx = {
+            from: account,
+            to: addresses.MockUSDT,
+            value: '0x0',
+            gas: '0xC3500', // 800000
+            data: mintData
+          };
+          
+          console.log('Minting USDT transaction:', mintTx);
+          const mintResult = await sendTransaction(mintTx);
+          console.log('✅ USDT minted successfully:', mintResult);
+        } else {
+          console.log('✅ User has sufficient USDT balance:', currentBalanceUsdt);
+        }
+      } catch (mintError) {
+        console.warn('⚠️ Could not mint test USDT:', mintError);
+        // Continue anyway, user might have USDT already
+      }
+
+      // Get the deposit amount from the circle contract first
+      if (!sdk) {
+        throw new Error('SDK not available');
+      }
+
+      const walletProvider = sdk.getWalletProvider();
+      const provider = new ethers.BrowserProvider(walletProvider);
+      const circleContract = new ethers.Contract(circleAddress, KYE_GROUP_ABI, provider);
+      
+      console.log('🔍 Getting deposit amount from circle contract...');
+      let depositAmount;
+      try {
+        const depositAmountRaw = await circleContract.depositAmount();
+        console.log('Raw deposit amount:', depositAmountRaw);
+        console.log('Raw deposit amount type:', typeof depositAmountRaw);
+        
+        // Handle the raw value more carefully to avoid FixedNumber issues
+        if (typeof depositAmountRaw === 'bigint') {
+          depositAmount = depositAmountRaw;
+        } else if (typeof depositAmountRaw === 'string') {
+          depositAmount = BigInt(depositAmountRaw);
+        } else if (depositAmountRaw && depositAmountRaw.toString) {
+          depositAmount = BigInt(depositAmountRaw.toString());
+        } else {
+          console.warn('Unexpected deposit amount format, using fallback');
+          depositAmount = BigInt('1000000000'); // 1000 USDT as fallback
+        }
+        
+        console.log('Processed deposit amount:', depositAmount.toString(), 'wei');
+        console.log('Deposit amount in USDT:', Number(depositAmount) / 1e6);
+      } catch (depositError) {
+        console.error('Error getting deposit amount from contract:', depositError);
+        console.log('Using fallback deposit amount: 1000 USDT');
+        depositAmount = BigInt('1000000000'); // 1000 USDT as fallback
+      }
+      
+      // Check if user has enough USDT balance
+      const usdtBalanceRaw = await getErc20TokenBalance(addresses.MockUSDT, account);
+      console.log('Raw USDT balance from wallet:', usdtBalanceRaw);
+      
+      let balanceWei;
+      let usdtBalance;
+      try {
+        // Handle the balance parsing safely - could be hex string or decimal string
+        if (usdtBalanceRaw && usdtBalanceRaw.startsWith('0x')) {
+          // It's a hex string (like 0x000000000000000000000000000000000000000000000000000000003b9aca00)
+          console.log('Balance is hex format, converting...');
+          balanceWei = BigInt(usdtBalanceRaw);
+          usdtBalance = (Number(balanceWei) / 1e6).toString(); // Convert to USDT decimal
+        } else {
+          // It's a decimal string
+          console.log('Balance is decimal format, parsing...');
+          const balanceStr = usdtBalanceRaw || '0';
+          usdtBalance = balanceStr;
+          balanceWei = ethers.parseUnits(balanceStr, 6);
+        }
+        
+        console.log('Processed balance (wei):', balanceWei.toString());
+        console.log('Processed balance (USDT):', usdtBalance);
+        
+      } catch (balanceError) {
+        console.error('Error parsing USDT balance:', usdtBalanceRaw, balanceError);
+        throw new Error(`Invalid USDT balance format: ${usdtBalanceRaw}. Expected decimal string or hex value.`);
+      }
+      
+      console.log('User USDT balance:', usdtBalance, 'USDT');
+      console.log('Required deposit (USDT):', Number(depositAmount) / 1e6);
+      console.log('Balance in wei:', balanceWei.toString());
+      console.log('Required in wei:', depositAmount.toString());
+      
+      if (balanceWei < depositAmount) {
+        const requiredUsdt = Number(depositAmount) / 1e6;
+        throw new Error(`Insufficient USDT balance. Required: ${requiredUsdt} USDT, Available: ${usdtBalance} USDT`);
+      }
+
+      // Step 1: Approve USDT spending
+      console.log('📤 Step 1: Approving USDT spending...');
+      const usdtInterface = new ethers.Interface(MOCK_USDT_ABI);
+      
+      // Ensure depositAmount is properly formatted for the approval
+      const approveData = usdtInterface.encodeFunctionData('approve', [circleAddress, depositAmount.toString()]);
+      
       const approveTx = {
         from: account,
         to: addresses.MockUSDT,
-        value: '0',
-        gas: '100000',
-        // Encode approve call
+        value: '0x0',
+        gas: '0x186A0', // 100000
+        data: approveData
       };
 
-      await sendTransaction(approveTx);
+      console.log('Approval transaction:', approveTx);
+      const approveResult = await sendTransaction(approveTx);
+      console.log('✅ USDT approval successful:', approveResult);
 
-      // Then make deposit
+      // Step 2: Make deposit to circle
+      console.log('📤 Step 2: Making deposit to circle...');
+      const circleInterface = new ethers.Interface(KYE_GROUP_ABI);
+      const depositData = circleInterface.encodeFunctionData('deposit', []);
+
       const depositTx = {
         from: account,
         to: circleAddress,
-        value: '0',
-        gas: '500000',
-        // Encode deposit call
+        value: '0x0',
+        gas: '0x7A120', // 500000
+        data: depositData
       };
 
+      console.log('Deposit transaction:', depositTx);
       const result = await sendTransaction(depositTx);
+      console.log('✅ Deposit successful:', result);
 
+      Sentry.addBreadcrumb({
+        message: 'Deposit completed successfully',
+        category: 'contract',
+        level: 'info',
+        data: { transactionHash: result }
+      });
+
+      console.log('=== MAKE DEPOSIT SUCCESS ===');
       return {
         hash: result as string,
         success: true
       };
 
     } catch (error) {
+      console.error('=== MAKE DEPOSIT ERROR ===');
+      console.error('Raw error:', error);
+      
+      let errorMessage = 'Failed to make deposit';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('Insufficient USDT balance')) {
+          errorMessage = error.message;
+        } else if (error.message.includes('network') || error.message.includes('Network')) {
+          errorMessage = `Network Error: ${error.message}\n\nTry switching to Kaia Kairos Testnet manually in your wallet.`;
+        } else if (error?.code === 4001) {
+          errorMessage = 'Transaction rejected by user';
+        } else if (error?.code === -32603) {
+          errorMessage = `Contract Error: ${error.message}\n\nCheck network and contract addresses.`;
+        } else {
+          errorMessage = `Error: ${error.message}`;
+        }
+      }
+
+      Sentry.captureException(error, {
+        tags: { component: 'KyeContracts', action: 'makeDeposit' },
+        extra: { circleAddress, account, addresses }
+      });
+
       return {
         hash: '',
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: errorMessage
       };
     }
-  }, [getAccount, sendTransaction, addresses]);
+  }, [getAccount, sendTransaction, addresses, sdk, getErc20TokenBalance]);
 
   // Get deposit info for current round
   const getDepositInfo = useCallback(async (

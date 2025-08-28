@@ -331,6 +331,59 @@ export default function CirclesClient() {
         }
     }, [getAccount, sdk]);
 
+    // Auto-refresh circles to catch member updates from other wallets
+    useEffect(() => {
+        if (!account || myCircles.length === 0) return;
+        
+        const autoRefreshMemberCounts = async () => {
+            console.log('🔄 Auto-refreshing member counts...');
+            
+            let hasUpdates = false;
+            const updatedCircles = await Promise.all(
+                myCircles.map(async (circle) => {
+                    if (circle.address && circle.address !== 'pending') {
+                        try {
+                            const realData = await fetchCircleData(circle.address);
+                            
+                            // Check for member count changes
+                            if (circle.memberCount !== realData.memberCount) {
+                                console.log(`🆕 Member count updated for ${circle.name}: ${circle.memberCount} → ${realData.memberCount}`);
+                                hasUpdates = true;
+                            }
+                            
+                            return {
+                                ...circle,
+                                ...realData,
+                                needsDataFetch: false
+                            };
+                        } catch (error) {
+                            console.error(`❌ Auto-refresh error for ${circle.address}:`, error);
+                            return circle;
+                        }
+                    }
+                    return circle;
+                })
+            );
+            
+            if (hasUpdates) {
+                console.log('📝 Updating circles with new member counts');
+                setMyCircles(updatedCircles);
+                
+                // Update localStorage
+                try {
+                    localStorage.setItem('recentCircles', JSON.stringify(updatedCircles));
+                } catch (e) {
+                    console.warn('Failed to update localStorage:', e);
+                }
+            }
+        };
+        
+        // Auto-refresh every 30 seconds
+        const interval = setInterval(autoRefreshMemberCounts, 30000);
+        
+        return () => clearInterval(interval);
+    }, [account, myCircles, fetchCircleData]);
+
     // Resolve pending contract addresses from transaction hashes
     const resolvePendingContracts = useCallback(async () => {
         console.log('🔍 Checking for pending contracts to resolve...');
