@@ -124,6 +124,24 @@ contract KyeGroup {
         maxMembers = _maxMembers;
         phase = Phase.Setup;
         currentRound = 0;
+
+        // Automatically add creator as the first member
+        members.push(_creator);
+        isMember[_creator] = true;
+        
+        memberStates[_creator] = MemberState({
+            wallet: _creator,
+            lineUserIdHash: _lineGroupIdHash, // Use the group hash as creator's identifier
+            totalDeposited: 0,
+            totalReceived: 0,
+            penaltiesAccrued: 0,
+            gracePeriodsUsed: 0,
+            defaultCount: 0,
+            hasDefaulted: false,
+            isActive: true
+        });
+
+        emit MemberJoined(_creator, _lineGroupIdHash);
     }
 
     function join(bytes32 _lineUserIdHash) external inPhase(Phase.Setup) {
@@ -377,6 +395,14 @@ contract KyeGroup {
     }
 
     // View functions
+    function memberCount() external view returns (uint256) {
+        return members.length;
+    }
+
+    function currentPhase() external view returns (Phase) {
+        return phase;
+    }
+
     function getMembers() external view returns (address[] memory) {
         return members;
     }

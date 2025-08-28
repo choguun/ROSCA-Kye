@@ -142,14 +142,18 @@ export const useKyeContracts = () => {
       const lineGroupId = `group_${circleName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
       console.log('Generated LINE group ID:', lineGroupId);
 
-      // Prepare CircleParams matching the smart contract structure
+      // Convert USDT amount properly (6 decimals)
+      const depositAmountWei = ethers.parseUnits(depositAmountUsdt, 6);
+      console.log('Deposit amount conversion:', depositAmountUsdt, '→', depositAmountWei.toString());
+
+      // Prepare CircleParams matching the smart contract structure  
       const params = {
         usdtToken: addresses.MockUSDT,
         yieldAdapter: addresses.SavingsPocket,
         lineGroupIdHash: hashLineGroupId(lineGroupId),
-        depositAmount: depositAmountUsdt, // Already in wei format from UI (multiplied by 1e6)
-        penaltyBps: penaltyBps.toString(), // 500 = 5% penalty
-        roundDuration: (roundDurationDays * 24 * 60 * 60).toString() // Convert days to seconds
+        depositAmount: depositAmountWei, // Properly converted BigNumber for USDT (6 decimals)
+        penaltyBps: BigInt(penaltyBps), // Convert to BigInt for encoding
+        roundDuration: BigInt(roundDurationDays * 24 * 60 * 60) // Convert to BigInt for encoding
       };
 
       console.log('Circle params:', params);
@@ -213,45 +217,22 @@ export const useKyeContracts = () => {
         data: { transactionHash: result, circleName }
       });
 
-      // Calculate the deterministic contract address using CREATE2
-      console.log('🔧 Calculating CREATE2 address...');
+      // Get the actual deployed contract address from the transaction receipt
+      console.log('🔍 Getting actual deployed contract address...');
+      const actualAddress = await getContractAddressFromTx(result as string);
       
-      // Get the init code hash (keccak256 of bytecode + constructor args)
-      // Factory constructor call: new KyeGroup(usdtToken, yieldAdapter, msg.sender, lineGroupIdHash, depositAmount, penaltyBps, roundDuration, maxMembers)
-      const constructorArgs = ethers.AbiCoder.defaultAbiCoder().encode(
-        ['address', 'address', 'address', 'bytes32', 'uint256', 'uint256', 'uint256', 'uint8'],
-        [
-          params.usdtToken,
-          params.yieldAdapter,
-          account, // creator (added by factory as msg.sender)
-          params.lineGroupIdHash,
-          params.depositAmount,
-          params.penaltyBps,
-          params.roundDuration,
-          maxMembers // uint8 as per ABI
-        ]
-      );
+      if (!actualAddress) {
+        console.error('❌ Could not determine contract address from transaction');
+        throw new Error('Failed to get deployed contract address');
+      }
       
-      const initCode = KYEGROUP_BYTECODE + constructorArgs.slice(2); // Remove 0x prefix from constructor args
-      const initCodeHash = ethers.keccak256(initCode);
-      
-      console.log('Constructor args:', constructorArgs);
-      console.log('Init code hash:', initCodeHash);
-      
-      // Calculate CREATE2 address
-      const predictedAddress = ethers.getCreate2Address(
-        addresses.KyeFactory, // factory address
-        salt, // salt
-        initCodeHash // init code hash
-      );
-      
-      console.log('✅ Predicted contract address:', predictedAddress);
+      console.log('✅ Actual deployed contract address:', actualAddress);
       console.log('=== CREATE CIRCLE SUCCESS ===');
 
       return {
         hash: result as string,
         success: true,
-        circleAddress: predictedAddress, // Immediate deterministic address!
+        circleAddress: actualAddress, // Use actual deployed address!
         salt: salt // Include salt for future reference
       };
 
@@ -351,6 +332,48 @@ export const useKyeContracts = () => {
         throw new Error('Wallet not connected');
       }
 
+      // Step 1: Check if contract exists and is in correct phase for joining
+      console.log('🔍 Step 1: Verifying contract and phase...');
+      if (!sdk) {
+        throw new Error('SDK not available');
+      }
+      
+      const walletProvider = sdk.getWalletProvider();
+      const provider = new ethers.BrowserProvider(walletProvider);
+      
+      // Check contract exists
+      const contractCode = await provider.getCode(inviteCode);
+      if (contractCode === '0x') {
+        throw new Error(`No contract found at address ${inviteCode}`);
+      }
+      console.log('✅ Contract exists');
+      
+      const circleContract = new ethers.Contract(inviteCode, KYE_GROUP_ABI, provider);
+      
+      // Check current phase
+      const currentPhase = await circleContract.currentPhase();
+      console.log('Current contract phase:', currentPhase.toString());
+      
+      // Check member count and max members
+      const [memberCount, maxMembers] = await Promise.all([
+        circleContract.memberCount(),
+        circleContract.maxMembers()
+      ]);
+      console.log('Current members:', memberCount.toString(), '/', maxMembers.toString());
+      
+      if (memberCount >= maxMembers) {
+        throw new Error('Circle is full - cannot join');
+      }
+      
+      // Check if user is already a member
+      const totalMembers = Number(memberCount);
+      for (let i = 0; i < totalMembers; i++) {
+        const memberAddress = await circleContract.members(i);
+        if (memberAddress.toLowerCase() === account.toLowerCase()) {
+          throw new Error('You are already a member of this circle');
+        }
+      }
+      
       // For demo, use account address as LINE user ID
       const lineUserId = `user_${account.toLowerCase()}`;
       const userIdHash = hashLineUserId(lineUserId);
@@ -362,8 +385,9 @@ export const useKyeContracts = () => {
 
       console.log('✅ Encoded joinCircle call:', joinCircleData);
 
-      // Prepare transaction
-      const gasLimit = 500000;
+      // Step 2: Prepare transaction with higher gas limit
+      console.log('📤 Step 2: Preparing join transaction...');
+      const gasLimit = 1000000; // Increased gas limit
       const gasLimitHex = '0x' + gasLimit.toString(16);
 
       const tx = {
@@ -373,6 +397,12 @@ export const useKyeContracts = () => {
         gas: gasLimitHex,
         data: joinCircleData
       };
+      
+      console.log('Transaction prepared:');
+      console.log('- To:', tx.to);
+      console.log('- From:', tx.from);
+      console.log('- Gas limit:', gasLimit);
+      console.log('- Data:', tx.data);
 
       console.log('📤 Sending joinCircle transaction...');
       console.log('Transaction details:');
@@ -388,9 +418,85 @@ export const useKyeContracts = () => {
         throw new Error(`Transaction format errors: ${validationResult.errors.join(', ')}`);
       }
 
+      // Step 3: Test transaction before sending (dry run)
+      console.log('🧪 Step 3: Testing transaction (dry run)...');
+      try {
+        if (sdk) {
+          const walletProvider = sdk.getWalletProvider();
+          const provider = new ethers.BrowserProvider(walletProvider);
+          
+          // Try to call the contract method directly first to see if it would succeed
+          const testResult = await provider.call({
+            to: tx.to,
+            data: tx.data,
+            from: tx.from
+          });
+          console.log('✅ Dry run successful, transaction should work');
+        }
+      } catch (dryRunError) {
+        console.warn('⚠️ Dry run failed:', dryRunError);
+        console.warn('This transaction will likely fail, but proceeding anyway...');
+        // Don't throw here, just warn
+      }
+
       console.log('🚀 All validations passed, joining circle...');
       const result = await sendTransaction(tx);
       console.log('✅ Circle join transaction sent:', result);
+
+      // Step 2: Wait for transaction to be mined and verify membership with retries
+      console.log('⏳ Waiting for transaction to be processed...');
+      
+      let isMember = false;
+      let attempts = 0;
+      const maxAttempts = 3;
+      
+      while (!isMember && attempts < maxAttempts) {
+        attempts++;
+        const waitTime = attempts * 3000; // 3s, 6s, 9s
+        console.log(`🔄 Attempt ${attempts}/${maxAttempts}: Waiting ${waitTime/1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        
+        console.log(`🔍 Verifying membership (attempt ${attempts})...`);
+        if (!sdk) {
+          console.warn('⚠️ SDK not available, skipping membership verification');
+          break;
+        }
+        
+        try {
+          const walletProvider = sdk.getWalletProvider();
+          const provider = new ethers.BrowserProvider(walletProvider);
+          const circleContract = new ethers.Contract(inviteCode, KYE_GROUP_ABI, provider);
+          
+          const memberCount = await circleContract.memberCount();
+          console.log(`Member count after join (attempt ${attempts}):`, memberCount.toString());
+          
+          // Check if user is now in the members list
+          let memberIndex = -1;
+          for (let i = 0; i < memberCount; i++) {
+            const memberAddress = await circleContract.members(i);
+            console.log(`Member ${i}:`, memberAddress);
+            if (memberAddress.toLowerCase() === account.toLowerCase()) {
+              isMember = true;
+              memberIndex = i;
+              console.log(`✅ User successfully joined as member #${i} on attempt ${attempts}`);
+              break;
+            }
+          }
+          
+          if (!isMember && attempts < maxAttempts) {
+            console.warn(`⚠️ User not found in member list on attempt ${attempts}, retrying...`);
+          } else if (!isMember) {
+            console.warn('⚠️ FINAL WARNING: Join transaction succeeded but user not found in member list after all attempts');
+            console.warn('The transaction may have failed silently or there may be a contract issue');
+          }
+          
+        } catch (verifyError) {
+          console.warn(`⚠️ Could not verify membership on attempt ${attempts}:`, verifyError);
+          if (attempts === maxAttempts) {
+            console.error('❌ Failed to verify membership after all attempts');
+          }
+        }
+      }
 
       Sentry.addBreadcrumb({
         message: 'Successfully joined circle',
@@ -410,19 +516,35 @@ export const useKyeContracts = () => {
     } catch (error) {
       console.error('=== JOIN CIRCLE ERROR ===');
       console.error('Raw error:', error);
+      console.error('Error type:', typeof error);
+      console.error('Error code:', error?.code);
+      console.error('Error message:', error?.message);
+      console.error('Error stack:', error?.stack);
 
       let userFriendlyMessage = 'Failed to join circle';
       
       if (error instanceof Error) {
-        if (error.message.includes('network') || error.message.includes('Network')) {
+        // Handle specific error cases
+        if (error.message.includes('missing revert data')) {
+          userFriendlyMessage = `Join Transaction Failed: The contract rejected your join request.\n\nPossible reasons:\n• Circle is full\n• You're already a member\n• Contract is in wrong phase\n• Insufficient gas\n\nTry increasing gas limit or check contract status.`;
+        } else if (error.message.includes('execution reverted')) {
+          userFriendlyMessage = `Contract Execution Failed: ${error.message}\n\nThe smart contract prevented this transaction.`;
+        } else if (error.message.includes('insufficient funds')) {
+          userFriendlyMessage = 'Insufficient funds for gas fees. Please add more KAIA to your wallet.';
+        } else if (error.message.includes('network') || error.message.includes('Network')) {
           userFriendlyMessage = `Network Error: ${error.message}\n\nTry switching to Kaia Kairos Testnet manually in your wallet.`;
         } else if (error?.code === 4001) {
           userFriendlyMessage = 'Transaction rejected by user';
         } else if (error?.code === -32603) {
-          userFriendlyMessage = `Contract Error: ${error.message}\n\nCheck network and contract addresses.`;
+          userFriendlyMessage = `RPC Error (-32603): ${error.message}\n\nThis usually indicates a network or contract issue.`;
+        } else if (error?.code === -32000) {
+          userFriendlyMessage = `Transaction Failed (-32000): ${error.message}\n\nThe transaction would fail execution.`;
         } else {
           userFriendlyMessage = `Error: ${error.message}`;
         }
+      } else {
+        // Handle non-Error objects
+        userFriendlyMessage = `Unknown error occurred: ${JSON.stringify(error)}`;
       }
 
       Sentry.captureException(error, {
@@ -436,7 +558,7 @@ export const useKyeContracts = () => {
         error: userFriendlyMessage
       };
     }
-  }, [getAccount, sendTransaction]);
+  }, [getAccount, sendTransaction, sdk]);
 
   // Deposit to current round
   const makeDeposit = useCallback(async (circleAddress: string) => {

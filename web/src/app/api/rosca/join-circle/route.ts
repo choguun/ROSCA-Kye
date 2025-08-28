@@ -7,8 +7,8 @@ import {
   type RoscaDepositParams 
 } from '@/lib/rosca-payment-utils';
 
-// Our deployed contract address (vs competitor's theoretical contract)
-const KYE_GROUP_FACTORY = process.env.NEXT_PUBLIC_KYE_FACTORY_ADDRESS || '0x724f792F3d11C8eB1471e84ABef654c93cE639dE';
+// Our deployed contract address (latest deployment with creator auto-membership)
+const KYE_GROUP_FACTORY = process.env.NEXT_PUBLIC_KYE_FACTORY_ADDRESS || '0xF0B8a48Ca9549dA069FA8E112c14B743F00D58C3';
 
 export async function POST(request: NextRequest) {
   try {

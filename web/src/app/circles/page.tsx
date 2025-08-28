@@ -33,6 +33,7 @@ export default function Circles() {
     const [balanceChecked, setBalanceChecked] = useState(false);
     const [currentAPY, setCurrentAPY] = useState('5.00');
     const [autoRefreshing, setAutoRefreshing] = useState(false);
+    const [membershipDetecting, setMembershipDetecting] = useState(false);
 
     // Wallet hooks - exactly like profile page
     const { account, setAccount } = useWalletAccountStore();
@@ -90,8 +91,9 @@ export default function Circles() {
                     return 0;
                 }),
                 circleContract.maxMembers().catch((e) => {
-                    console.log('❌ Error getting maxMembers:', e.message);
-                    return 5;
+                    console.log('❌ Error getting maxMembers from contract:', e.message);
+                    console.log('🔧 Will use fallback from localStorage or default to 5');
+                    return 5; // Will be overridden by localStorage data if available
                 })
             ]);
             
@@ -124,7 +126,37 @@ export default function Circles() {
                 }
             })();
             
-            const memberCountDisplay = `${members.length}/${Number(maxMembers)}`;
+            // Handle member count with creator workaround for unfixed contracts
+            let actualMemberCount = members.length;
+            const isCreator = creator.toLowerCase() === account.toLowerCase();
+            
+            if (actualMemberCount === 0 && isCreator) {
+                // If contract doesn't have creator auto-membership fix, manually count creator
+                actualMemberCount = 1;
+                console.log('🔧 CREATOR WORKAROUND: Contract missing creator auto-membership, adjusting count 0→1');
+            }
+            
+            // Check localStorage for actual maxMembers if contract call failed
+            let actualMaxMembers = Number(maxMembers);
+            if (actualMaxMembers === 5) {
+                // Try to get actual maxMembers from localStorage
+                try {
+                    if (typeof window !== 'undefined' && window.localStorage) {
+                        const storedCircles = JSON.parse(localStorage.getItem('recentCircles') || '[]');
+                        const matchingCircle = storedCircles.find((c: any) => 
+                            c.address?.toLowerCase() === circleAddress.toLowerCase()
+                        );
+                        if (matchingCircle && matchingCircle.maxMembers) {
+                            actualMaxMembers = Number(matchingCircle.maxMembers);
+                            console.log(`🔧 Using maxMembers from localStorage: ${actualMaxMembers} (instead of contract default: ${maxMembers})`);
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Failed to get maxMembers from localStorage:', e);
+                }
+            }
+            
+            const memberCountDisplay = `${actualMemberCount}/${actualMaxMembers}`;
             const phaseNames = ['Setup', 'Commitment', 'Active', 'Settlement', 'Resolved', 'Disputed'];
             const phaseName = phaseNames[Number(phase)] || `Unknown (${phase})`;
             
@@ -139,8 +171,18 @@ export default function Circles() {
                 console.log(`    [${index}] Matches creator:`, member.toLowerCase() === creator.toLowerCase());
             });
             
-            const isUserMember = members.some(member => member.toLowerCase() === account.toLowerCase());
-            const isCreator = creator.toLowerCase() === account.toLowerCase();
+            // Enhanced membership detection with creator workaround
+            const isInMembersArray = members.some(member => member.toLowerCase() === account.toLowerCase());
+            const needsCreatorWorkaround = (actualMemberCount === 1 && members.length === 0 && isCreator);
+            const isUserMember = isInMembersArray || needsCreatorWorkaround;
+            
+            console.log('🔧 ENHANCED MEMBERSHIP DETECTION:');
+            console.log('  - isInMembersArray:', isInMembersArray);
+            console.log('  - needsCreatorWorkaround:', needsCreatorWorkaround);
+            console.log('  - actualMemberCount:', actualMemberCount);
+            console.log('  - members.length:', members.length);
+            console.log('  - isCreator:', isCreator);
+            console.log('  - Final isUserMember:', isUserMember);
             
             console.log('🔍 MEMBERSHIP RESULTS:');
             console.log('  - isUserMember:', isUserMember);
@@ -162,8 +204,8 @@ export default function Circles() {
                 depositAmount: depositAmountUsdt,
                 memberCount: memberCountDisplay,
                 phase: phaseName,
-                maxMembers: Number(maxMembers),
-                isJoined: isUserMember && !isCreator,
+                maxMembers: actualMaxMembers, // Use the corrected maxMembers value
+                isJoined: isUserMember, // Creator is also considered "joined" if they're in members array
                 isCreator: isCreator
             };
             
@@ -235,17 +277,23 @@ export default function Circles() {
                     const circles = JSON.parse(saved);
                     console.log('Loaded circles from localStorage:', circles);
                     
-                    // Update circles that need data fetch
+                    // Update ALL circles with fresh contract data for accurate membership status
                     const updatedCircles = await Promise.all(
                         circles.map(async (circle) => {
-                            if (circle.needsDataFetch && circle.address && circle.address !== 'pending') {
-                                console.log('🔍 Fetching real data for circle:', circle.address);
-                                const contractData = await fetchCircleData(circle.address);
-                                return {
-                                    ...circle,
-                                    ...contractData,
-                                    needsDataFetch: false // Remove flag after fetching
-                                };
+                            if (circle.address && circle.address !== 'pending') {
+                                console.log('🔍 Auto-updating membership status for circle:', circle.address);
+                                try {
+                                    const contractData = await fetchCircleData(circle.address);
+                                    console.log('✅ Updated membership for circle:', circle.name, 'isCreator:', contractData.isCreator, 'isJoined:', contractData.isJoined);
+                                    return {
+                                        ...circle,
+                                        ...contractData,
+                                        needsDataFetch: false // Remove flag after fetching
+                                    };
+                                } catch (error) {
+                                    console.warn('⚠️ Failed to update circle:', circle.address, error);
+                                    return circle; // Return original if update fails
+                                }
                             }
                             return circle;
                         })
@@ -570,19 +618,97 @@ export default function Circles() {
         setInviteCode('');
     };
 
-    const handleViewDetails = (circle) => {
+    const handleViewDetails = useCallback(async (circle) => {
+        console.log('🔍 Opening circle details with automatic membership detection...');
+        
+        // First, set the circle and show details immediately
         setSelectedCircle(circle);
         setShowCircleDetails(true);
-        // Scroll to top for better UX
         window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
+        
+        // Then automatically detect current membership status
+        if (circle.address && circle.address !== 'pending') {
+            try {
+                setMembershipDetecting(true);
+                console.log('🔍 Auto-detecting membership for:', circle.address);
+                const freshMembershipData = await fetchCircleData(circle.address);
+                console.log('✅ Fresh membership data:', freshMembershipData);
+                
+                // Update the selected circle with fresh membership data
+                const updatedCircle = {
+                    ...circle,
+                    ...freshMembershipData
+                };
+                
+                console.log('📝 Updated circle with membership data:', {
+                    name: updatedCircle.name,
+                    isJoined: updatedCircle.isJoined,
+                    isCreator: updatedCircle.isCreator,
+                    memberCount: updatedCircle.memberCount,
+                    phase: updatedCircle.phase
+                });
+                
+                setSelectedCircle(updatedCircle);
+                
+                // Also update the circle in myCircles list for consistency
+                setMyCircles(prev => prev.map(c => 
+                    c.address?.toLowerCase() === circle.address?.toLowerCase() 
+                        ? updatedCircle 
+                        : c
+                ));
+                
+            } catch (error) {
+                console.error('⚠️ Failed to auto-detect membership:', error);
+                // Continue showing details even if membership detection fails
+            } finally {
+                setMembershipDetecting(false);
+            }
+        } else {
+            console.log('⚠️ Circle address is pending, skipping membership detection');
+        }
+    }, [fetchCircleData]);
 
-    const handleManageCircle = (circle) => {
+    const handleManageCircle = useCallback(async (circle) => {
+        console.log('🔍 Opening circle management with automatic membership detection...');
+        
+        // First, set the circle and show details immediately
         setSelectedCircle(circle);
         setShowCircleDetails(true);
-        // Scroll to top for better UX
         window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
+        
+        // Then automatically detect current membership status
+        if (circle.address && circle.address !== 'pending') {
+            try {
+                setMembershipDetecting(true);
+                console.log('🔍 Auto-detecting membership for management view:', circle.address);
+                const freshMembershipData = await fetchCircleData(circle.address);
+                console.log('✅ Fresh management data:', freshMembershipData);
+                
+                // Update the selected circle with fresh membership data
+                const updatedCircle = {
+                    ...circle,
+                    ...freshMembershipData
+                };
+                
+                setSelectedCircle(updatedCircle);
+                
+                // Also update the circle in myCircles list for consistency
+                setMyCircles(prev => prev.map(c => 
+                    c.address?.toLowerCase() === circle.address?.toLowerCase() 
+                        ? updatedCircle 
+                        : c
+                ));
+                
+            } catch (error) {
+                console.error('⚠️ Failed to auto-detect membership for management:', error);
+                // Continue showing management even if membership detection fails
+            } finally {
+                setMembershipDetecting(false);
+            }
+        } else {
+            console.log('⚠️ Circle address is pending, skipping membership detection for management');
+        }
+    }, [fetchCircleData]);
 
     const handleRefreshCircle = useCallback(async (circle, circleIndex) => {
         console.log(`🔄 Manual refresh requested for circle:`, circle.address);
@@ -1201,8 +1327,8 @@ ${circle.phase === 'Setup' ?
                         const joinedCircle = {
                             name: `Circle ${inviteCode.slice(0, 8)}...`, // Short name from address
                             depositAmount: 'Fetching...', // Will be updated when we fetch data
-                            memberCount: '1/5', // Default, will be updated
-                            maxMembers: 5,
+                            memberCount: '1/5', // Default, will be updated when we fetch contract data
+                            maxMembers: 5, // Will be updated when we fetch contract data
                             phase: 'Active',
                             isCreator: false,
                             isJoined: true,
@@ -1225,8 +1351,51 @@ ${circle.phase === 'Setup' ?
                             // Update local circles list immediately
                             setMyCircles(prev => [...prev, joinedCircle]);
                             
+                            // Automatically fetch fresh data for the joined circle
+                            console.log('🔄 Fetching fresh data for joined circle...');
+                            setTimeout(async () => {
+                                try {
+                                    const freshData = await fetchCircleData(inviteCode);
+                                    console.log('✅ Fresh data for joined circle:', freshData);
+                                    
+                                    // Update the circle with fresh data
+                                    setMyCircles(prev => prev.map(circle => 
+                                        circle.address?.toLowerCase() === inviteCode.toLowerCase()
+                                            ? { ...circle, ...freshData, needsDataFetch: false }
+                                            : circle
+                                    ));
+                                    
+                                    // Also update localStorage
+                                    const updatedExisting = JSON.parse(localStorage.getItem('recentCircles') || '[]');
+                                    const finalUpdated = updatedExisting.map(circle =>
+                                        circle.address?.toLowerCase() === inviteCode.toLowerCase()
+                                            ? { ...circle, ...freshData, needsDataFetch: false }
+                                            : circle
+                                    );
+                                    localStorage.setItem('recentCircles', JSON.stringify(finalUpdated));
+                                    
+                                } catch (fetchError) {
+                                    console.warn('⚠️ Failed to fetch fresh data for joined circle:', fetchError);
+                                }
+                            }, 3000); // Wait 3 seconds for join transaction to be processed
+                            
                         } else {
                             console.log('⚠️ Circle already exists in localStorage, not adding duplicate');
+                            
+                            // Still refresh the existing circle's data
+                            console.log('🔄 Refreshing existing circle data...');
+                            setTimeout(async () => {
+                                try {
+                                    const freshData = await fetchCircleData(inviteCode);
+                                    setMyCircles(prev => prev.map(circle => 
+                                        circle.address?.toLowerCase() === inviteCode.toLowerCase()
+                                            ? { ...circle, ...freshData, isJoined: true, needsDataFetch: false }
+                                            : circle
+                                    ));
+                                } catch (fetchError) {
+                                    console.warn('⚠️ Failed to refresh existing circle data:', fetchError);
+                                }
+                            }, 3000);
                         }
                     }
                 } catch (e) {
@@ -1502,11 +1671,15 @@ ${circle.phase === 'Setup' ?
                                         </div>
                                         <div className={styles.detailItem}>
                                             <span className={styles.detailLabel}>Your Role:</span>
-                                            <span className={styles.detailValue}>{
-                                                selectedCircle.isCreator ? '👑 Creator' : 
-                                                selectedCircle.isJoined ? '👥 Member' :
-                                                'Observer'
-                                            }</span>
+                                            <span className={styles.detailValue}>
+                                                {membershipDetecting ? (
+                                                    <span style={{ color: '#f59e0b' }}>🔄 Detecting...</span>
+                                                ) : (
+                                                    selectedCircle.isCreator ? '👑 Creator (Member #0)' : 
+                                                    selectedCircle.isJoined ? '👥 Member' :
+                                                    '👁️ Observer'
+                                                )}
+                                            </span>
                                         </div>
                                         <div className={styles.detailItem}>
                                             <span className={styles.detailLabel}>Created:</span>
@@ -1554,125 +1727,260 @@ ${circle.phase === 'Setup' ?
                                 </div>
                             </div>
 
-                            {selectedCircle.isCreator && selectedCircle.phase === 'Setup' && (
-                                <div className={styles.managementSection}>
-                                    <h3>Circle Management</h3>
-                                    <div className={styles.managementActions}>
+                            {/* {!selectedCircle.isCreator && ( */}
+                                <div className={styles.memberSection}>
+                                    <h3>Member Actions {membershipDetecting && <span style={{ fontSize: '14px', color: '#f59e0b' }}>🔄 Detecting membership...</span>}</h3>
+                                    <div className={styles.memberActions}>
+                                        {membershipDetecting ? (
+                                            <div style={{ 
+                                                padding: '16px', 
+                                                textAlign: 'center', 
+                                                color: '#f59e0b',
+                                                backgroundColor: '#fef3c7',
+                                                borderRadius: '8px',
+                                                border: '1px solid #f59e0b'
+                                            }}>
+                                                🔄 Auto-detecting your membership status...
+                                                <br />
+                                                <small>This will determine the correct actions to show</small>
+                                            </div>
+                                        ) : !selectedCircle.isJoined && !selectedCircle.isCreator ? (
+                                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                                <button 
+                                                    className={styles.createButton}
+                                                    onClick={async () => {
+                                                        if (!selectedCircle.address) {
+                                                            alert('❌ Invalid circle address');
+                                                            return;
+                                                        }
+                                                        
+                                                        console.log('🎯 DIRECT JOIN - Using selected circle address:', selectedCircle.address);
+                                                        
+                                                        const confirmed = window.confirm(
+                                                            `Join this circle?\n\nAddress: ${selectedCircle.address}\n\nThis will send a transaction to join the circle.`
+                                                        );
+                                                        
+                                                        if (!confirmed) return;
+                                                        
+                                                        try {
+                                                            setJoining(true);
+                                                            
+                                                            // Call joinCircle directly with the selected circle's address
+                                                            const result = await joinCircle(selectedCircle.address);
+                                                            
+                                                            if (result.success) {
+                                                                alert(`✅ Successfully joined circle!\n\nTransaction Hash: ${result.hash}\n\nYou are now a member of this circle.`);
+                                                                
+                                                                // Update the UI to show joined status
+                                                                const updatedCircle = {
+                                                                    ...selectedCircle,
+                                                                    isJoined: true,
+                                                                    needsDataFetch: true
+                                                                };
+                                                                setSelectedCircle(updatedCircle);
+                                                                
+                                                                // Update myCircles
+                                                                const updatedCircles = myCircles.map(circle => 
+                                                                    circle.address?.toLowerCase() === selectedCircle.address?.toLowerCase()
+                                                                        ? { ...circle, isJoined: true, needsDataFetch: true }
+                                                                        : circle
+                                                                );
+                                                                setMyCircles(updatedCircles);
+                                                                
+                                                                // Refresh data after 3 seconds
+                                                                setTimeout(async () => {
+                                                                    try {
+                                                                        const freshData = await fetchCircleData(selectedCircle.address);
+                                                                        console.log('✅ Fresh data after join:', freshData);
+                                                                        
+                                                                        setSelectedCircle((prev: any) => ({ ...prev, ...freshData, needsDataFetch: false }));
+                                                                        setMyCircles(prev => prev.map(circle => 
+                                                                            circle.address?.toLowerCase() === selectedCircle.address?.toLowerCase()
+                                                                                ? { ...circle, ...freshData, needsDataFetch: false }
+                                                                                : circle
+                                                                        ));
+                                                                    } catch (fetchError) {
+                                                                        console.warn('Failed to refresh data:', fetchError);
+                                                                    }
+                                                                }, 3000);
+                                                                
+                                                            } else {
+                                                                throw new Error(result.error || 'Join failed');
+                                                            }
+                                                            
+                                                        } catch (error: any) {
+                                                            console.error('❌ Join error:', error);
+                                                            alert(`❌ Failed to join circle:\n\n${error?.message || error}`);
+                                                        } finally {
+                                                            setJoining(false);
+                                                        }
+                                                    }}
+                                                    style={{ backgroundColor: '#10b981' }}
+                                                    disabled={joining}
+                                                >
+                                                    {joining ? '⏳ Joining...' : '👥 Join Circle'}
+                                                </button>
+                                                <button 
+                                                    className={styles.viewButton}
+                                                    onClick={async () => {
+                                                        console.log('🔄 Marking as joined without transaction...');
+                                                        
+                                                        const updatedCircle = {
+                                                            ...selectedCircle,
+                                                            isJoined: true,
+                                                            needsDataFetch: true
+                                                        };
+                                                        setSelectedCircle(updatedCircle);
+                                                        
+                                                        // Also update in myCircles
+                                                        const updatedCircles = myCircles.map(circle => 
+                                                            circle.address?.toLowerCase() === selectedCircle.address?.toLowerCase()
+                                                                ? { ...circle, isJoined: true, needsDataFetch: true }
+                                                                : circle
+                                                        );
+                                                        setMyCircles(updatedCircles);
+                                                        
+                                                        // Update localStorage
+                                                        if (typeof window !== 'undefined' && window.localStorage) {
+                                                            try {
+                                                                const existing = JSON.parse(localStorage.getItem('recentCircles') || '[]');
+                                                                const updated = existing.map((circle: any) => 
+                                                                    circle.address?.toLowerCase() === selectedCircle.address?.toLowerCase()
+                                                                        ? { ...circle, isJoined: true, needsDataFetch: true }
+                                                                        : circle
+                                                                );
+                                                                localStorage.setItem('recentCircles', JSON.stringify(updated));
+                                                            } catch (e) {
+                                                                console.warn('Failed to update localStorage:', e);
+                                                            }
+                                                        }
+                                                        
+                                                        alert('✅ Marked as joined!\n\nIf you are already a member of this circle, you can now try making a deposit.');
+                                                    }}
+                                                    style={{ backgroundColor: '#8b5cf6' }}
+                                                    title="Skip join transaction if you're already a member"
+                                                >
+                                                    ⏭️ Already Member
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div>
+                                                <div style={{ 
+                                                    padding: '12px', 
+                                                    marginBottom: '16px',
+                                                    backgroundColor: selectedCircle.isCreator ? '#dcfdf7' : '#dbeafe',
+                                                    borderRadius: '8px',
+                                                    border: selectedCircle.isCreator ? '1px solid #10b981' : '1px solid #3b82f6'
+                                                }}>
+                                                    <div style={{ 
+                                                        fontSize: '14px', 
+                                                        fontWeight: 'bold',
+                                                        color: selectedCircle.isCreator ? '#065f46' : '#1e40af',
+                                                        marginBottom: '4px'
+                                                    }}>
+                                                        ✅ Membership Confirmed
+                                                    </div>
+                                                    <div style={{ 
+                                                        fontSize: '13px', 
+                                                        color: selectedCircle.isCreator ? '#047857' : '#1d4ed8'
+                                                    }}>
+                                                        {selectedCircle.isCreator 
+                                                            ? '👑 You are the creator of this circle' 
+                                                            : '👥 You are a member of this circle'
+                                                        }
+                                                    </div>
+                                                </div>
+                                                
+                                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                                    {selectedCircle.phase === 'Active' && (
+                                                        <button 
+                                                            className={styles.createButton}
+                                                            onClick={() => handleMakeDeposit(selectedCircle.address)}
+                                                            style={{ backgroundColor: '#10b981' }}
+                                                        >
+                                                            💰 Make Deposit
+                                                        </button>
+                                                    )}
+                                                    
+                                                    {selectedCircle.phase !== 'Active' && (
+                                                        <div style={{ 
+                                                            padding: '8px 12px',
+                                                            backgroundColor: '#f3f4f6',
+                                                            borderRadius: '6px',
+                                                            fontSize: '13px',
+                                                            color: '#6b7280'
+                                                        }}>
+                                                            💡 Deposits available when circle becomes Active
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                        
                                         <button 
                                             className={styles.inviteButton}
-                                            onClick={() => handleShareInviteLink(selectedCircle)}
+                                            onClick={async () => {
+                                                console.log('🔍 Manual membership check...');
+                                                console.log('Circle address:', selectedCircle.address);
+                                                console.log('Current account:', account);
+                                                
+                                                // Check if we're querying the right contract
+                                                console.log('⚠️ IMPORTANT CONTRACT CHECK:');
+                                                console.log('- Selected circle address:', selectedCircle.address);
+                                                console.log('- Expected from transaction:', '0xb82b3f83a2e0e3a4cc2ca5f82b4d72237cddc7b0');
+                                                console.log('- Addresses match:', selectedCircle.address?.toLowerCase() === '0xb82b3f83a2e0e3a4cc2ca5f82b4d72237cddc7b0');
+                                                
+                                                const freshData = await fetchCircleData(selectedCircle.address);
+                                                console.log('Fresh data:', freshData);
+                                                
+                                                // Also do a direct contract call to double-check
+                                                if (sdk) {
+                                                    try {
+                                                        const { ethers } = await import('ethers');
+                                                        const { KYE_GROUP_ABI } = await import('@/utils/contracts/abis');
+                                                        
+                                                        const walletProvider = sdk.getWalletProvider();
+                                                        const provider = new ethers.BrowserProvider(walletProvider);
+                                                        
+                                                        // Check both the selected circle AND the transaction address
+                                                        const addressesToCheck = [
+                                                            selectedCircle.address,
+                                                            '0xb82b3f83a2e0e3a4cc2ca5f82b4d72237cddc7b0' // From successful transaction
+                                                        ];
+                                                        
+                                                        for (const addressToCheck of addressesToCheck) {
+                                                            if (!addressToCheck) continue;
+                                                            
+                                                            console.log(`🔍 CHECKING CONTRACT: ${addressToCheck}`);
+                                                            const circleContract = new ethers.Contract(addressToCheck, KYE_GROUP_ABI, provider);
+                                                            
+                                                            const memberCount = await circleContract.memberCount();
+                                                            console.log(`- Member count: ${memberCount.toString()}`);
+                                                            
+                                                            for (let i = 0; i < memberCount; i++) {
+                                                                const memberAddr = await circleContract.members(i);
+                                                                console.log(`- Member ${i}: ${memberAddr}`);
+                                                                console.log(`- Matches account: ${memberAddr.toLowerCase() === account?.toLowerCase()}`);
+                                                            }
+                                                            console.log('');
+                                                        }
+                                                    } catch (e) {
+                                                        console.error('Direct contract check failed:', e);
+                                                    }
+                                                }
+                                                
+                                                alert(`Member Count: ${freshData.memberCount}\nIs Joined: ${freshData.isJoined}\nIs Creator: ${freshData.isCreator}\n\nCheck console for detailed membership info.`);
+                                            }}
+                                            title="Check current membership status"
                                         >
-                                            📤 Share Invite Link
+                                            🔍 Check Membership
                                         </button>
-                                        <button 
-                                            className={styles.viewButton}
-                                            onClick={() => handleViewMembers(selectedCircle)}
-                                        >
-                                            👥 View Members
-                                        </button>
-                                        <button 
-                                            className={styles.manageButton}
-                                            onClick={() => handleCircleSettings(selectedCircle)}
-                                        >
-                                            ⚙️ Circle Settings
-                                        </button>
-                                    </div>
-                                    
-                                    <div className={styles.inviteSection}>
-                                        <h4>Invite Code</h4>
-                                        {selectedCircle.address && selectedCircle.address !== 'pending' ? (
-                                            <>
-                                                <p>Share this address with friends to let them join your circle:</p>
-                                                <div className={styles.inviteCodeContainer}>
-                                                    <input 
-                                                        type="text" 
-                                                        value={selectedCircle.address}
-                                                        readOnly 
-                                                        className={styles.inviteCodeInput}
-                                                    />
-                                                    <button 
-                                                        className={styles.copyButton}
-                                                        onClick={() => copyToClipboard(selectedCircle.address, 'Invite Code')}
-                                                    >
-                                                        📋 Copy
-                                                    </button>
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <p className={styles.pendingMessage}>
-                                                    ⏳ Your circle contract is being deployed on the Kaia blockchain...
-                                                </p>
-                                                <div className={styles.inviteCodeContainer}>
-                                                    <input 
-                                                        type="text" 
-                                                        value="🔄 Generating invite code..."
-                                                        readOnly 
-                                                        className={`${styles.inviteCodeInput} ${styles.pending}`}
-                                                    />
-                                                    <button 
-                                                        className={styles.copyButton}
-                                                        disabled={true}
-                                                    >
-                                                        ⏳ Wait
-                                                    </button>
-                                                </div>
-                                                <div className={styles.deploymentStatus}>
-                                                    <p><strong>📋 Transaction Hash:</strong></p>
-                                                    <div className={styles.inviteCodeContainer}>
-                                                        <input 
-                                                            type="text" 
-                                                            value={selectedCircle.transactionHash}
-                                                            readOnly 
-                                                            className={styles.inviteCodeInput}
-                                                        />
-                                                        <button 
-                                                            className={styles.copyButton}
-                                                            onClick={() => copyToClipboard(selectedCircle.transactionHash, 'Transaction Hash')}
-                                                        >
-                                                            📋 Copy
-                                                        </button>
-                                                    </div>
-                                                    <p className={styles.helpText}>
-                                                        💡 The invite code will appear here once deployment is complete. 
-                                                        You can share the transaction hash above for now.
-                                                    </p>
-                                                </div>
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            {!selectedCircle.isCreator && (
-                                <div className={styles.memberSection}>
-                                    <h3>Member Actions</h3>
-                                    <div className={styles.memberActions}>
-                                        {!selectedCircle.isJoined ? (
-                                            <button 
-                                                className={styles.createButton}
-                                                onClick={() => {
-                                                    setInviteCode(selectedCircle.address);
-                                                    handleJoinClick();
-                                                }}
-                                                style={{ backgroundColor: '#10b981' }}
-                                            >
-                                                👥 Join Circle First
-                                            </button>
-                                        ) : (
-                                            <button 
-                                                className={styles.viewButton}
-                                                onClick={() => handleMakeDeposit(selectedCircle.address)}
-                                            >
-                                                💰 Make Deposit
-                                            </button>
-                                        )}
                                         <button className={styles.inviteButton}>
                                             📊 View Progress
                                         </button>
                                     </div>
                                 </div>
-                            )}
+                            {/* )} */}
                         </div>
                     </div>
                 )}
@@ -1734,13 +2042,13 @@ ${circle.phase === 'Setup' ?
                                         )}
                                     </div>
                                     <div className={styles.circleDetails}>
-                                        <p><strong>Monthly Amount:</strong> {circle.depositAmount} USDT</p>
-                                        <p><strong>Members:</strong> {circle.memberCount}</p>
-                                        <p><strong>Role:</strong> {
+                                        {/* <p><strong>Monthly Amount:</strong> {circle.depositAmount} USDT</p>
+                                        <p><strong>Members:</strong> {circle.memberCount}</p> */}
+                                        {/* <p><strong>Role:</strong> {
                                             circle.isCreator ? '👑 Creator' : 
                                             circle.isJoined ? '👥 Member' :
                                             'Observer'
-                                        }</p>
+                                        }</p> */}
                                         {circle.address && circle.address !== 'pending' && (
                                             <p><strong>Address:</strong> <span className={styles.address}>{circle.address}</span></p>
                                         )}

@@ -518,12 +518,11 @@ export default function CirclesClient() {
                 throw new Error(`Wrong network! Current: ${currentChainId}, Expected: ${process.env.NEXT_PUBLIC_CHAIN_ID}`);
             }
 
-            // Convert amount to proper format (USDT has 6 decimals)
-            const amountInUSDT = (parseFloat(monthlyAmount) * 1e6).toString();
-            console.log('Amount in USDT (wei):', amountInUSDT);
+            // Pass amount as string - useKyeContracts will handle USDT conversion (6 decimals)
+            console.log('Amount in USDT:', monthlyAmount);
 
             // Call the actual smart contract
-            const result = await createCircle(circleName, amountInUSDT);
+            const result = await createCircle(circleName, monthlyAmount);
             console.log('✅ Circle created successfully:', result);
 
             if (result.success) {

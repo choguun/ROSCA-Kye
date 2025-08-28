@@ -48,14 +48,17 @@ contract KyeGroupTest is Test {
             5 // maxMembers
         );
         
-        // Distribute USDT to members
+        // Distribute USDT to members (including creator)
+        usdtToken.mint(creator, 10000 * 10**6);
         usdtToken.mint(member1, 10000 * 10**6);
         usdtToken.mint(member2, 10000 * 10**6);
         usdtToken.mint(member3, 10000 * 10**6);
         usdtToken.mint(member4, 10000 * 10**6);
         usdtToken.mint(member5, 10000 * 10**6);
         
-        // Approve USDT spending
+        // Approve USDT spending (including creator)
+        vm.prank(creator);
+        usdtToken.approve(address(kyeGroup), type(uint256).max);
         vm.prank(member1);
         usdtToken.approve(address(kyeGroup), type(uint256).max);
         vm.prank(member2);
@@ -77,8 +80,10 @@ contract KyeGroupTest is Test {
         assertEq(kyeGroup.creator(), creator);
         assertEq(kyeGroup.lineGroupIdHash(), LINE_GROUP_ID);
         
+        // Creator should be automatically added as member
         address[] memory members = kyeGroup.getMembers();
-        assertEq(members.length, 0);
+        assertEq(members.length, 1);
+        assertEq(members[0], creator);
     }
     
     function testJoinCircle() public {
@@ -86,8 +91,9 @@ contract KyeGroupTest is Test {
         kyeGroup.join(MEMBER1_LINE_ID);
         
         address[] memory members = kyeGroup.getMembers();
-        assertEq(members.length, 1);
-        assertEq(members[0], member1);
+        assertEq(members.length, 2); // Creator + member1
+        assertEq(members[0], creator); // Creator is member 0
+        assertEq(members[1], member1); // member1 is member 1
         
         KyeGroup.MemberState memory memberState = kyeGroup.getMemberState(member1);
         assertEq(memberState.wallet, member1);
@@ -113,29 +119,27 @@ contract KyeGroupTest is Test {
     }
     
     function testAutoStartWhenFull() public {
-        // Join 4 members
+        // Join 3 members (creator is already member 0)
         vm.prank(member1);
         kyeGroup.join(MEMBER1_LINE_ID);
         vm.prank(member2);
         kyeGroup.join(MEMBER2_LINE_ID);
         vm.prank(member3);
         kyeGroup.join(MEMBER3_LINE_ID);
-        vm.prank(member4);
-        kyeGroup.join(MEMBER4_LINE_ID);
         
-        // Still in Setup phase
+        // Still in Setup phase (4 members total)
         assertEq(uint256(kyeGroup.phase()), uint256(KyeGroup.Phase.Setup));
         
-        // Join 5th member - should auto-start
-        vm.prank(member5);
-        kyeGroup.join(MEMBER5_LINE_ID);
+        // Join 4th member - should auto-start (5 members total)
+        vm.prank(member4);
+        kyeGroup.join(MEMBER4_LINE_ID);
         
         assertEq(uint256(kyeGroup.phase()), uint256(KyeGroup.Phase.Active));
         assertEq(kyeGroup.currentRound(), 0);
         
         // Check first round is initialized
         KyeGroup.RoundState memory round = kyeGroup.getRoundState(0);
-        assertEq(round.beneficiary, member1); // First member is beneficiary
+        assertEq(round.beneficiary, creator); // Creator (member 0) is first beneficiary
         assertGt(round.deadline, block.timestamp);
         assertEq(round.totalDeposited, 0);
         assertFalse(round.isComplete);
@@ -322,6 +326,7 @@ contract KyeGroupTest is Test {
     
     // Helper functions
     function _fillCircle() internal {
+        // Creator is already member 0, so only add 4 more members
         vm.prank(member1);
         kyeGroup.join(MEMBER1_LINE_ID);
         vm.prank(member2);
@@ -330,7 +335,6 @@ contract KyeGroupTest is Test {
         kyeGroup.join(MEMBER3_LINE_ID);
         vm.prank(member4);
         kyeGroup.join(MEMBER4_LINE_ID);
-        vm.prank(member5);
-        kyeGroup.join(MEMBER5_LINE_ID);
+        // member5 not needed - circle is full with 5 members total
     }
 }

@@ -9,17 +9,17 @@ const getContractAddressesFromEnv = () => {
 
   // Fallback addresses for different networks
   const fallbackAddresses = {
-    // Kaia Kairos Testnet (Chain ID: 1001)
+    // Kaia Kairos Testnet (Chain ID: 1001) - Latest deployment with creator auto-membership fix
     1001: {
-      MockUSDT: '0x8f198cd718aa1bf2b338ddba78736e91cd254da6',
-      SavingsPocket: '0xc05ba2595d916ad94378438dbb3b6f3161bd6c5b',
-      KyeFactory: '0x724f792f3d11c8eb1471e84abef654c93ce639de',
+      MockUSDT: '0xE5349B2c9feC6cc99500D4333244DC79c8f2C943',
+      SavingsPocket: '0xCfAbE6786bA807b9f6388fB692d080F3d488Aa99',
+      KyeFactory: '0xF0B8a48Ca9549dA069FA8E112c14B743F00D58C3',
     },
-    // Local Anvil (Chain ID: 31337)
+    // Local Anvil (Chain ID: 31337) - Updated with fixed contracts
     31337: {
-      MockUSDT: '0x5fbdb2315678afecb367f032d93f642f64180aa3',
-      SavingsPocket: '0xe7f1725e7734ce288f8367e1bb143e90bb3f0512',
-      KyeFactory: '0x5fc8d32690cc91d4c39d9d3abcbd16989f875707',
+      MockUSDT: '0x0165878A594ca255338adfa4d48449f69242Eb8F',
+      SavingsPocket: '0xa513E6E4b8f2a923D98304ec87F64353C4D5C853',
+      KyeFactory: '0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e',
     }
   };
 
