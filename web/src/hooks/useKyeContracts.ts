@@ -1236,15 +1236,54 @@ Technical details: Required ${Number(totalRequired) / 1e6} USDT (${Number(deposi
       console.log('🔗 Using Kaia Wallet SDK provider for tx receipt');
       const provider = new ethers.BrowserProvider(walletProvider);
       
-      // Wait for transaction receipt
-      const receipt = await provider.getTransactionReceipt(txHash);
+      // IMPROVED: Wait for transaction to be mined with polling and timeout
+      console.log('⏳ Waiting for transaction to be mined...');
+      
+      const maxAttempts = 30; // 30 attempts
+      const pollInterval = 2000; // 2 seconds between attempts
+      let attempts = 0;
+      let receipt = null;
+      
+      while (attempts < maxAttempts && !receipt) {
+        try {
+          receipt = await provider.getTransactionReceipt(txHash);
+          
+          if (receipt) {
+            console.log(`✅ Transaction mined after ${attempts + 1} attempts (${(attempts * pollInterval / 1000).toFixed(1)}s)`);
+            break;
+          }
+          
+          attempts++;
+          console.log(`⏳ Attempt ${attempts}/${maxAttempts} - Transaction not mined yet, waiting ${pollInterval/1000}s...`);
+          
+          // Wait before next attempt
+          await new Promise(resolve => setTimeout(resolve, pollInterval));
+          
+        } catch (pollError) {
+          console.log(`⚠️ Error polling for receipt (attempt ${attempts + 1}):`, (pollError as any).message);
+          attempts++;
+          
+          if (attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, pollInterval));
+          }
+        }
+      }
       
       if (!receipt) {
-        console.log('❌ Transaction receipt not found yet');
+        console.log(`❌ Transaction receipt not found after ${maxAttempts} attempts (${maxAttempts * pollInterval / 1000}s timeout)`);
         return null;
       }
       
       console.log('✅ Transaction receipt:', receipt);
+      
+      // IMPROVED: Check transaction status before proceeding
+      if (receipt.status === 0) {
+        console.log('❌ Transaction failed (status: 0)');
+        console.log('Transaction may have reverted. Check transaction details on explorer.');
+        return null;
+      }
+      
+      console.log('✅ Transaction successful (status: 1)');
       
       // Look for contract creation in logs or events
       // For factory contracts, the new contract address is usually in events
