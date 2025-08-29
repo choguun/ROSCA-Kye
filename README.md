@@ -194,24 +194,6 @@ pnpm lint
 pnpm build
 ```
 
-## 📊 Current Status
-
-### ✅ Completed Features
-- [x] Smart contracts deployed and verified on Kairos testnet
-- [x] Complete deposit/payout UI with penalty preview
-- [x] Advanced countdown timers with urgency states
-- [x] Full circle dashboard with member management
-- [x] Yield tracking display with SavingsPocket integration
-- [x] LINE notification system
-- [x] End-to-end testing completed
-
-### 🚀 Production Deployment
-
-**Deployed Contract Addresses (Kairos Testnet):**
-- **USDT**: `0x8f198CD718aa1Bf2b338ddba78736E91cD254da6`
-- **SavingsPocket**: `0xC05Ba2595D916Ad94378438dBb3b6F3161bd6C5b`
-- **KyeFactory**: `0x724f792F3d11C8eB1471e84ABef654c93cE639dE`
-
 ## 🔧 Development Commands
 
 ```bash
@@ -242,34 +224,6 @@ pnpm lint                # Run linting
 - Emergency pause mechanisms for disputed circles
 - Grace period limits to prevent gaming of system
 
-## 🏆 Hackathon Information
-
-**Target**: August 27 DoraHacks submission  
-**Status**: ✅ Core implementation complete with working demo on Kaia Kairos testnet
-
 ## 🤝 Cultural Context
 
 The "kye" (계) system is deeply rooted in Korean culture as a trust-based community savings method. This blockchain implementation preserves the social trust elements while adding transparency and automation, focusing on group dynamics, fair play, and community accountability.
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 👥 Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📞 Support
-
-For questions and support:
-- Open an issue on GitHub
-- Check the [documentation](./CLAUDE.md)
-- Review the [implementation guide](./IMPLEMENTATION-SUMMARY.md)
-
----
-
-**Built with ❤️ for the Korean community and LINE users worldwide** 🇰🇷
